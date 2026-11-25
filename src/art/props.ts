@@ -20,33 +20,28 @@ const outlineRect = (p: Painter, x: number, y: number, w: number, h: number, fil
 // ---------------------------------------------------------------------------
 
 function shipShell(p: Painter): void {
+  // Two-deck capsule: upper deck (quarters + training bay) and lower deck (cockpit + hatch).
   const W = 336;
-  const H = 160;
-  // Rounded capsule body.
+  const H = 288;
   p.rect(6, 0, W - 12, H, C.out).rect(2, 6, W - 4, H - 12, C.out).rect(0, 14, W, H - 28, C.out);
   p.rect(7, 1, W - 14, H - 2, C.hull).rect(3, 7, W - 6, H - 14, C.hull).rect(1, 15, W - 2, H - 30, C.hull);
-  // Top highlight and belly shade.
   p.rect(8, 2, W - 16, 3, C.hullL).rect(8, 2, W - 16, 1, C.white);
   p.rect(4, H - 34, W - 8, 24, C.hullD).rect(8, H - 10, W - 16, 6, C.hullD);
-  // Panel seams.
   for (let x = 40; x < W - 20; x += 48) p.rect(x, 6, 1, H - 40, C.hullD);
-  p.rect(4, 44, W - 8, 1, C.hullD);
-  // Red mission stripe.
-  p.rect(1, 84, W - 2, 8, C.red).rect(1, 84, W - 2, 1, "#ff7a6e").rect(1, 91, W - 2, 1, C.redDark);
-  // Lettering.
-  drawText(p, "LAIKA-1", 30, 68, C.steelD);
-  drawText(p, "MISSION 57", 30, 96, C.hullD);
-  // Big porthole (matches the interior window position).
-  const px = 232;
-  p.disc(px, 54, 14, C.out).disc(px, 54, 12, C.steel).disc(px, 54, 9, C.glass).disc(px - 3, 50, 3, C.glassL);
-  // Hatch outline on the right end.
-  p.rect(W - 20, 76, 18, 52, C.out).rect(W - 18, 78, 14, 48, C.hullD).rect(W - 16, 80, 10, 44, C.hull);
-  p.rect(W - 13, 98, 4, 6, C.yellow);
-  // Rivets.
+  p.rect(4, 44, W - 8, 1, C.hullD).rect(4, 172, W - 8, 1, C.hullD);
+  // Red mission stripe along the deck between the two levels.
+  p.rect(1, 134, W - 2, 8, C.red).rect(1, 134, W - 2, 1, "#ff7a6e").rect(1, 141, W - 2, 1, C.redDark);
+  drawText(p, "LAIKA-1", 30, 118, C.steelD);
+  drawText(p, "MISSION 57", 30, 146, C.hullD);
+  // Portholes matching the interior windows of both decks.
+  for (const y of [54, 182]) {
+    p.disc(232, y, 14, C.out).disc(232, y, 12, C.steel).disc(232, y, 9, C.glass).disc(229, y - 4, 3, C.glassL);
+  }
+  p.rect(W - 20, 204, 18, 52, C.out).rect(W - 18, 206, 14, 48, C.hullD).rect(W - 16, 208, 10, 44, C.hull);
+  p.rect(W - 13, 226, 4, 6, C.yellow);
   const r = rng(5);
-  for (let i = 0; i < 60; i++) p.px(10 + Math.floor(r() * (W - 20)), 8 + Math.floor(r() * (H - 20)), C.hullD);
-  // Scorch marks from a hard landing.
-  for (let i = 0; i < 220; i++) {
+  for (let i = 0; i < 100; i++) p.px(10 + Math.floor(r() * (W - 20)), 8 + Math.floor(r() * (H - 20)), C.hullD);
+  for (let i = 0; i < 260; i++) {
     const x = Math.floor(r() * W);
     const y = H - 40 + Math.floor(r() * 36);
     p.px(x, y, r() < 0.5 ? "#6a5a5a" : "#4e4246", 0.6);
@@ -526,8 +521,140 @@ function dot(color: string, size: number): (p: Painter) => void {
   };
 }
 
+
+// ---------------------------------------------------------------------------
+// Phase 2: Mission 00 training bay, echo sensor, guidance props, effects
+// ---------------------------------------------------------------------------
+
+function practiceConsole(on: boolean): (p: Painter) => void {
+  return (p) => {
+    // A chunky training console with a big round button: distinctive at a glance.
+    p.rect(6, 14, 6, 14, C.out).rect(7, 14, 4, 14, C.steel);
+    outlineRect(p, 0, 2, 18, 14, on ? C.steel : C.steelD);
+    outlineRect(p, 2, 4, 14, 7, on ? C.navy : C.steelDD);
+    if (on) {
+      // Check mark on the screen.
+      p.px(5, 7, C.mint).px(6, 8, C.mint).px(7, 9, C.mint).px(8, 8, C.mint).px(9, 7, C.mint).px(10, 6, C.mint).px(11, 5, C.mint);
+    } else {
+      p.rect(4, 7, 3, 1, C.glass).rect(8, 7, 5, 1, C.steel);
+    }
+    p.disc(9, 13, 2, on ? C.mint : C.yellow).px(8, 12, C.white);
+    p.rect(14, 0, 2, 3, C.out).px(14, 0, on ? C.mint : C.red);
+    p.rect(3, 26, 12, 2, C.out);
+  };
+}
+
+function soilTray(p: Painter): void {
+  // A sample tray of Martian soil brought aboard for training.
+  p.rect(0, 2, 72, 8, C.out).rect(1, 3, 70, 6, C.steel).rect(1, 3, 70, 1, C.steelL);
+  p.rect(3, 0, 66, 4, C.soil).rect(3, 0, 66, 1, C.soilL);
+  const r = rng(12);
+  for (let i = 0; i < 30; i++) p.px(3 + Math.floor(r() * 66), Math.floor(r() * 3), r() < 0.5 ? C.soilD : C.crust);
+  drawText(p, "SAMPLE", 22, 4, C.steelD);
+}
+
+function trainingMachine(state: "off" | "on0" | "on1"): (p: Painter) => void {
+  return (p) => {
+    const on = state !== "off";
+    outlineRect(p, 0, 4, 30, 30, on ? C.steel : C.steelD);
+    p.rect(1, 5, 28, 2, on ? C.steelL : C.steel);
+    // Fan.
+    p.disc(15, 18, 9, C.out).disc(15, 18, 8, on ? C.navy : C.steelDD);
+    const blades = state === "on1" ? [[1, 1], [-1, -1], [1, -1], [-1, 1]] : [[1, 0], [-1, 0], [0, 1], [0, -1]];
+    for (const [dx, dy] of blades) for (let k = 2; k <= 6; k++) p.px(15 + dx * k, 18 + dy * k, on ? C.glass : C.steel);
+    p.disc(15, 18, 2, on ? C.white : C.steel);
+    // Lights.
+    for (let i = 0; i < 3; i++) p.rect(4 + i * 4, 29, 3, 2, on ? C.mint : C.out);
+    if (!on) p.rect(23, 27, 5, 4, C.steelDD).px(24, 31, C.yellow).px(26, 32, C.red); // open slot, loose wires
+    else p.rect(23, 28, 4, 3, C.blueL);
+    p.rect(13, 0, 4, 5, C.out).rect(14, 1, 2, 3, on ? C.mint : C.red);
+  };
+}
+
+function echoSensor(state: "idle" | "on0" | "on1"): (p: Painter) => void {
+  return (p) => {
+    const on = state !== "idle";
+    // Mast with spinning anemometer cups and a speaker grille.
+    p.rect(9, 8, 3, 26, C.out).rect(10, 8, 1, 26, C.steelL);
+    p.rect(4, 32, 13, 2, C.out);
+    const spin = state === "on1";
+    p.rect(3, 4, 15, 1, C.steelD);
+    p.disc(spin ? 5 : 3, spin ? 6 : 4, 2, C.out).disc(spin ? 16 : 18, spin ? 3 : 4, 2, C.out);
+    p.disc(spin ? 5 : 3, spin ? 6 : 4, 1, C.hullL).disc(spin ? 16 : 18, spin ? 3 : 4, 1, C.hullL);
+    p.rect(10, 0, 1, 4, C.steel).px(10, 0, on ? C.mint : C.yellow);
+    outlineRect(p, 4, 14, 13, 11, C.steelD);
+    for (let y = 16; y < 24; y += 2) p.rect(6, y, 9, 1, on ? C.glass : C.steel);
+    p.rect(6, 25, 3, 2, on ? C.mint : C.out).rect(12, 25, 3, 2, on ? C.yellow : C.out);
+  };
+}
+
+function tunnelLamp(p: Painter): void {
+  p.rect(1, 4, 4, 6, C.out).rect(2, 5, 2, 5, C.steel);
+  p.rect(0, 0, 6, 5, C.out).rect(1, 1, 4, 3, C.yellow).px(2, 1, C.white);
+}
+
+function tunnelSign(p: Painter): void {
+  p.rect(13, 12, 3, 16, C.out).rect(14, 12, 1, 16, C.steelL);
+  outlineRect(p, 0, 0, 30, 14, C.yellow);
+  drawText(p, "EXIT", 3, 2, C.out);
+  // Arrow pointing right (east).
+  p.rect(19, 5, 6, 2, C.out).rect(23, 3, 1, 6, C.out).rect(24, 4, 1, 4, C.out).rect(25, 5, 1, 2, C.out);
+  drawText(p, "->", 3, 8, C.out);
+}
+
+function pitSign(p: Painter): void {
+  p.rect(13, 12, 3, 16, C.out).rect(14, 12, 1, 16, C.steelL);
+  outlineRect(p, 0, 0, 30, 14, C.cream);
+  drawText(p, "JUMP", 3, 2, C.redDark);
+  drawText(p, "OR", 21, 2, C.steelD);
+  drawText(p, "TUNNEL", 3, 8, C.steelD);
+}
+
+function roverTracks(p: Painter): void {
+  for (let x = 0; x < 16; x += 4) {
+    p.rect(x, 0, 2, 1, C.soilD).rect(x + 1, 2, 2, 1, C.soilD);
+  }
+}
+
+function landingMarker(p: Painter): void {
+  // Painted floor marker showing where to land after the jump.
+  for (let x = 0; x < 28; x += 4) p.rect(x, 0, 2, 2, C.yellow).rect(x + 2, 0, 2, 2, C.out);
+}
+
+function pawprint(p: Painter): void {
+  p.rect(1, 1, 2, 2, C.soilD).px(0, 0, C.soilD).px(3, 0, C.soilD);
+}
+
+function barkWave(p: Painter): void {
+  // Three little sound arcs (rendered for players who cannot hear the bark).
+  for (const [r, a] of [
+    [3, 1],
+    [6, 0.8],
+    [9, 0.6],
+  ] as Array<[number, number]>) {
+    for (let k = -r; k <= r; k++) {
+      const x = Math.round(Math.sqrt(Math.max(0, r * r - k * k)));
+      p.px(x + 1, 10 + k, C.white, a);
+    }
+  }
+}
+
+function cockpitPanel(p: Painter): void {
+  outlineRect(p, 0, 6, 44, 18, C.steelD);
+  outlineRect(p, 3, 9, 16, 8, C.steelDD);
+  outlineRect(p, 22, 9, 18, 8, C.steelDD);
+  p.rect(5, 12, 6, 1, C.red).rect(24, 11, 4, 1, C.yellow).rect(30, 13, 6, 1, C.red);
+  for (let i = 0; i < 6; i++) p.rect(4 + i * 6, 19, 3, 2, i % 2 ? C.red : C.yellow);
+  p.rect(2, 0, 40, 6, C.out).rect(3, 1, 38, 4, C.steel);
+}
+
+function storageBox(p: Painter): void {
+  outlineRect(p, 0, 0, 20, 14, C.orange);
+  p.rect(1, 1, 18, 2, C.yellow).rect(8, 5, 4, 4, C.out).rect(9, 6, 2, 2, C.yellow);
+}
+
 export const PROPS: Record<string, PropDef> = {
-  ship_shell: { w: 336, h: 160, draw: shipShell },
+  ship_shell: { w: 336, h: 288, draw: shipShell },
   ship_engine: { w: 34, h: 56, draw: shipEngine },
   ship_antenna: { w: 40, h: 42, draw: shipAntenna },
   ship_bed: { w: 28, h: 12, draw: shipBed },
@@ -586,4 +713,23 @@ export const PROPS: Record<string, PropDef> = {
   px_spark: { w: 1, h: 1, draw: dot(C.yellow, 1) },
   px_white: { w: 2, h: 2, draw: dot(C.white, 2) },
   px_thrust: { w: 2, h: 2, draw: dot(C.orange, 2) },
+  px_glint: { w: 1, h: 1, draw: dot(C.white, 1) },
+  practice_console_off: { w: 18, h: 28, draw: practiceConsole(false) },
+  practice_console_on: { w: 18, h: 28, draw: practiceConsole(true) },
+  soil_tray: { w: 72, h: 10, draw: soilTray },
+  training_machine_off: { w: 30, h: 34, draw: trainingMachine("off") },
+  training_machine_on0: { w: 30, h: 34, draw: trainingMachine("on0") },
+  training_machine_on1: { w: 30, h: 34, draw: trainingMachine("on1") },
+  echo_sensor_idle: { w: 21, h: 34, draw: echoSensor("idle") },
+  echo_sensor_on0: { w: 21, h: 34, draw: echoSensor("on0") },
+  echo_sensor_on1: { w: 21, h: 34, draw: echoSensor("on1") },
+  tunnel_lamp: { w: 6, h: 10, draw: tunnelLamp },
+  sign_tunnel: { w: 30, h: 28, draw: tunnelSign },
+  sign_pit: { w: 30, h: 28, draw: pitSign },
+  rover_tracks: { w: 16, h: 3, draw: roverTracks },
+  landing_marker: { w: 28, h: 2, draw: landingMarker },
+  pawprint: { w: 4, h: 3, draw: pawprint },
+  bark_wave: { w: 12, h: 21, draw: barkWave },
+  cockpit_panel: { w: 44, h: 24, draw: cockpitPanel },
+  storage_box: { w: 20, h: 14, draw: storageBox },
 };

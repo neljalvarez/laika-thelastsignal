@@ -18,7 +18,8 @@ two marked "the team should confirm"). **The team remains responsible for confir
 ## Sound effects and ambience
 
 Synthesized at runtime with the Web Audio API (`src/audio/AudioManager.ts`). No recorded audio files. The Martian
-wind is filtered noise, not a recording from Mars.
+wind is filtered noise, not a recording from Mars. Phase 2 cues (skid, stage complete, console beep, rover beep,
+yawn, scanner tracking) are synthesized the same way.
 
 ## Art
 
@@ -29,6 +30,10 @@ wind is filtered noise, not a recording from Mars.
   redrawn here as a side view.
 - The original project's memorial photograph was **not** copied (its photographer and licence are not recorded).
 - `public/favicon.svg`: drawn for this project.
+- **Phase 2 animation references.** The team supplied four reference images (a quadruped walk-cycle diagram, a
+  digging-dog pose, a dog sprite sheet and dust/smoke effect shapes). They were used only as **references for
+  timing and pose** (back leg one step behind the opposite front leg, equal stride; head down and rear up when
+  digging; puff shapes). Nothing was traced or copied, and the images are not in the repository.
 
 ## Fonts and libraries
 
@@ -48,6 +53,7 @@ Every fact in the game is short and simplified. Sources checked on 2026-11-25:
 | Hematite "blueberries" formed in water, found by Opportunity | [NASA Science, Meridiani Planum](https://science.nasa.gov/resource/meridiani-planum-2/); [NASA Astrobiology, Iron Blueberries (2004)](https://astrobiology.nasa.gov/news/check-type-iron-blueberries/) |
 | Gypsum veins left by water, found by Curiosity | [NASA JPL, Curiosity Finds Calcium-Rich Deposits (2013)](https://www.jpl.nasa.gov/videos/curiosity-finds-calcium-rich-deposits/) |
 | Dust on panels reduces solar power; batteries store it | Same principle as the original game's "Power on Mars" card ([NASA JPL, Opportunity recovery, 2018](https://www.jpl.nasa.gov/news/six-things-about-opportunitys-recovery-efforts/)) |
+| Sound is quieter on Mars and travels slower than on Earth (echo sensor, Phase 2) | [NASA JPL, What Sounds Captured by NASA's Perseverance Rover Reveal About Mars (2022)](https://www.jpl.nasa.gov/news/what-sounds-captured-by-nasas-perseverance-rover-reveal-about-mars/): about 240–250 m/s on Mars vs 343 m/s on Earth; [NASA Science, Sounds of Mars](https://science.nasa.gov/mission/mars-2020-perseverance/sounds-of-mars/): quieter and more muffled |
 | Basalt (volcanic rock) is common on Mars; radio signals take minutes between Mars and Earth | General planetary-science facts, stated simply |
 
 Game rules (power needing three clean panels, part costs, the 88-minute signal, Ares Station, rover R-2) are fiction.

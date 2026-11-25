@@ -647,6 +647,15 @@ button.hud-btn:focus-visible {
   height: 54px;
   font-size: 12px;
 }
+.touch .t-bark {
+  right: 104px;
+  bottom: 106px;
+  width: 46px;
+  height: 46px;
+  font-size: 11px;
+  margin-right: env(safe-area-inset-right);
+  margin-bottom: env(safe-area-inset-bottom);
+}
 .touch .t-sprint.on {
   background: var(--accent);
 }
@@ -663,4 +672,266 @@ button.hud-btn:focus-visible {
 body.reduced-motion * {
   animation: none !important;
   transition: none !important;
+}
+
+/* ===================== Phase 2 ===================== */
+
+/* Safe areas (notches, rounded corners, home indicators). */
+.touch {
+  padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+}
+.touch .t-jump,
+.touch .t-act,
+.touch .t-sniff {
+  margin-right: env(safe-area-inset-right);
+  margin-bottom: env(safe-area-inset-bottom);
+}
+.touch .t-dpad,
+.touch .t-sprint {
+  margin-left: env(safe-area-inset-left);
+  margin-bottom: env(safe-area-inset-bottom);
+}
+.touch .t-dpad {
+  position: absolute;
+  left: 12px;
+  bottom: 16px;
+  width: 148px;
+  height: 68px;
+  display: flex;
+  gap: 6px;
+  pointer-events: auto;
+  touch-action: none;
+}
+.touch .t-dpad .half {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 26px;
+  color: var(--edge);
+  background: rgba(255, 241, 208, 0.78);
+  border: 3px solid var(--edge);
+  border-radius: 12px;
+  box-shadow: inset 0 -4px 0 rgba(0, 0, 0, 0.18);
+}
+.touch .t-dpad .half.pressed {
+  background: var(--accent);
+  transform: translateY(2px);
+}
+
+/* Objective: one actionable line, expandable details. */
+.hud-objective .title {
+  justify-content: space-between;
+  font-size: calc(12px * var(--ui-scale));
+  color: var(--ink-dim);
+  font-weight: 700;
+}
+.hud-objective .primary {
+  font-size: calc(15px * var(--ui-scale));
+  font-weight: 700;
+  color: var(--ink);
+  margin-top: 0.15em;
+}
+.hud-objective .primary .key,
+.tut-text .key,
+.signal .key {
+  display: inline-block;
+  margin-left: 0.35em;
+  padding: 0 0.35em;
+  min-width: 1.5em;
+  text-align: center;
+  color: var(--edge);
+  background: var(--ink);
+  border: 2px solid var(--edge);
+  box-shadow: inset 0 -2px 0 #d9c7a3;
+  font-size: 0.9em;
+}
+.obj-toggle {
+  font-family: var(--font);
+  font-size: calc(12px * var(--ui-scale));
+  color: var(--accent);
+  background: transparent;
+  border: 1px solid var(--line);
+  padding: 0 0.4em;
+  min-height: 24px;
+  cursor: pointer;
+  pointer-events: auto;
+}
+.hud-objective .opt-head {
+  margin-top: 0.35em;
+  color: var(--accent);
+  font-size: calc(12px * var(--ui-scale));
+  font-weight: 700;
+}
+.hud-objective ul.optional li {
+  color: var(--ink-dim);
+}
+
+/* Mission 00 card */
+.tut-card {
+  position: absolute;
+  left: 50%;
+  top: 8px;
+  transform: translateX(-50%);
+  width: min(70%, calc(440px * var(--ui-scale)));
+  padding: 0.45em 0.7em 0.5em;
+  text-align: center;
+  transition: box-shadow 0.2s;
+}
+.tut-card.done {
+  box-shadow:
+    inset 0 0 0 2px var(--good),
+    0 3px 0 rgba(0, 0, 0, 0.45);
+}
+.tut-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.5em;
+}
+.tut-mission {
+  color: var(--accent);
+  font-size: calc(11px * var(--ui-scale));
+  letter-spacing: 0.12em;
+  font-weight: 700;
+}
+.tut-skip {
+  font-family: var(--font);
+  font-size: calc(12px * var(--ui-scale));
+  color: var(--ink);
+  background: transparent;
+  border: 1px solid var(--line);
+  min-height: 28px;
+  padding: 0 0.5em;
+  cursor: pointer;
+}
+.tut-skip:hover,
+.tut-skip:focus-visible {
+  background: #3a2340;
+  outline: 2px solid #fff;
+}
+.tut-title {
+  font-weight: 700;
+  font-size: calc(19px * var(--ui-scale));
+  margin-top: 0.1em;
+}
+.tut-card.done .tut-title {
+  color: var(--good);
+}
+.tut-text {
+  font-size: calc(16px * var(--ui-scale));
+  margin-top: 0.15em;
+}
+.tut-dots {
+  margin-top: 0.3em;
+  letter-spacing: 0.3em;
+  color: var(--ink-dim);
+  font-size: calc(11px * var(--ui-scale));
+}
+.tut-dots .done {
+  color: var(--good);
+}
+.tut-dots .now {
+  color: var(--accent);
+}
+.tut-hint {
+  margin-top: 0.3em;
+  color: var(--accent);
+  font-size: calc(13px * var(--ui-scale));
+}
+.tut-assist {
+  position: absolute;
+  left: 50%;
+  top: 46%;
+  transform: translateX(-50%);
+  width: min(80%, calc(420px * var(--ui-scale)));
+  padding: 0.6em 0.8em;
+  font-size: calc(15px * var(--ui-scale));
+  display: flex;
+  flex-direction: column;
+  gap: 0.5em;
+}
+.mission-card {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  background: rgba(10, 4, 12, 0.55);
+  font-weight: 700;
+  text-align: center;
+  font-size: calc(34px * var(--ui-scale));
+  text-shadow:
+    3px 3px 0 var(--edge),
+    -2px -2px 0 var(--edge);
+  letter-spacing: 0.05em;
+}
+.mission-card small {
+  color: var(--accent);
+  font-size: 0.45em;
+  letter-spacing: 0.22em;
+}
+
+/* Scanner meter */
+.signal {
+  position: absolute;
+  left: 50%;
+  bottom: calc(14% + 3em * var(--ui-scale));
+  transform: translateX(-50%);
+  display: flex;
+  gap: 0.5em;
+  align-items: center;
+  padding: 0.25em 0.6em;
+  font-size: calc(14px * var(--ui-scale));
+  font-weight: 700;
+}
+.signal .lbl {
+  color: var(--accent);
+  font-size: 0.8em;
+  letter-spacing: 0.1em;
+}
+.signal .bars {
+  display: inline-flex;
+  gap: 2px;
+  align-items: flex-end;
+}
+.signal .bar {
+  width: 5px;
+  height: 6px;
+  border: 1px solid var(--ink-dim);
+}
+.signal .bar:nth-child(2) {
+  height: 9px;
+}
+.signal .bar:nth-child(3) {
+  height: 12px;
+}
+.signal .bar:nth-child(4) {
+  height: 15px;
+}
+.signal .bar.on {
+  background: var(--ink);
+  border-color: var(--ink);
+}
+
+/* Sound captions */
+.caption {
+  position: absolute;
+  left: 8px;
+  bottom: 8px;
+  padding: 0.2em 0.5em;
+  background: rgba(20, 10, 22, 0.8);
+  border: 1px solid var(--line);
+  font-size: calc(13px * var(--ui-scale));
+}
+#ui.touch-on .caption {
+  bottom: auto;
+  top: calc(30% + 1em);
+}
+#ui.touch-on .signal {
+  bottom: calc(26%);
+}
+#ui.touch-on .hud-objective {
+  max-width: min(42%, calc(320px * var(--ui-scale)));
 }

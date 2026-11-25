@@ -6,7 +6,8 @@
 import Phaser from "phaser";
 import { INTERACT_RANGE, TILE } from "../config/constants";
 import { OBJECTS, objectPos, type WorldObject } from "../data/world";
-import { getInteraction, type Interaction, type InteractionContext } from "../systems/interactions";
+import type { Interaction } from "../systems/interactions";
+import type { TutorialState } from "../systems/tutorial";
 import { isPowered, type GameState } from "../systems/state";
 import { DEPTH } from "./WorldView";
 
@@ -45,11 +46,15 @@ export class ObjectsView {
   private sparkle: Phaser.GameObjects.Particles.ParticleEmitter;
   private dirt: Phaser.GameObjects.Particles.ParticleEmitter;
   private poweredShown = false;
+  private highlightGlow: Phaser.GameObjects.Image;
+  private highlightId: string | null = null;
+  private fanTimer: Phaser.Time.TimerEvent | null = null;
   revealed = new Set<string>();
 
   constructor(private scene: Phaser.Scene) {
     const s = scene;
     this.marker = s.add.image(0, 0, "marker").setDepth(DEPTH.ui).setVisible(false);
+    this.highlightGlow = s.add.image(0, 0, "glow").setDepth(DEPTH.fx).setBlendMode(Phaser.BlendModes.ADD).setTint(0xfff1a0).setAlpha(0).setScale(1.4);
     s.tweens.add({ targets: this.marker, y: "+=3", duration: 380, yoyo: true, repeat: -1, ease: "Sine.easeInOut" });
     s.add.tileSprite(CABLE_FROM, 24 * TILE - 1, CABLE_TO - CABLE_FROM, 4, "cable_off").setOrigin(0, 1).setDepth(DEPTH.propsBack);
     this.cableOn = s.add.tileSprite(CABLE_FROM, 24 * TILE - 1, 0, 4, "cable_on").setOrigin(0, 1).setDepth(DEPTH.propsBack);
@@ -166,6 +171,23 @@ export class ObjectsView {
       case "beacon":
         v.sprite = img("beacon_off", DEPTH.propsBack);
         break;
+      case "practiceConsole": {
+        v.sprite = img("practice_console_off", DEPTH.propsBack);
+        // Blinking indicator: the console asks to be noticed.
+        const blinkGlow = s.add.image(x + 6, y - 27, "glow").setDepth(DEPTH.fx).setTint(0xff6a5a).setBlendMode(Phaser.BlendModes.ADD).setScale(0.35);
+        v.extra.push(blinkGlow);
+        s.tweens.add({ targets: blinkGlow, alpha: 0.1, duration: 420, yoyo: true, repeat: -1 });
+        break;
+      }
+      case "practiceBuried":
+        v.sprite = img("mound", DEPTH.propsBack + 1);
+        break;
+      case "trainingMachine":
+        v.sprite = img("training_machine_off", DEPTH.propsBack);
+        break;
+      case "echoSensor":
+        v.sprite = img("echo_sensor_idle", DEPTH.propsBack);
+        break;
       case "hatch":
       case "stationDoor":
       case "secret":
@@ -230,7 +252,7 @@ export class ObjectsView {
   // ---------------- targeting ----------------
 
   /** The best object for E right now, and what E would do. */
-  findTarget(px: number, feetY: number, facing: number, st: GameState, ctx: InteractionContext): { o: WorldObject; i: Interaction } | null {
+  findTarget(px: number, feetY: number, facing: number, interactionFor: (o: WorldObject) => Interaction | null): { o: WorldObject; i: Interaction } | null {
     let best: { o: WorldObject; i: Interaction; score: number } | null = null;
     for (const v of this.views.values()) {
       const { o } = v;
@@ -239,13 +261,39 @@ export class ObjectsView {
       const reach = REACH[o.kind] ?? INTERACT_RANGE;
       const dx = p.x - px;
       if (Math.abs(dx) > reach || Math.abs(p.y - feetY) > 28) continue;
-      const i = getInteraction(o, st, ctx);
+      const i = interactionFor(o);
       if (!i) continue;
       // Prefer close objects in front of Laika.
       const score = Math.abs(dx) - (Math.sign(dx) === facing ? 6 : 0);
       if (!best || score < best.score) best = { o, i, score };
     }
     return best ? { o: best.o, i: best.i } : null;
+  }
+
+  /** Revealed dig spots or visible pickups close to Laika (for her excited wag). */
+  nearTreasure(px: number, feetY: number): boolean {
+    for (const v of this.views.values()) {
+      if (!v.sprite?.visible) continue;
+      const isTreasure = v.o.kind === "pickup" || ((v.o.kind === "buried" || v.o.kind === "practiceBuried") && this.revealed.has(v.o.id));
+      if (isTreasure && Math.abs(v.sprite.x - px) < 40 && Math.abs(objectPos(v.o).y - feetY) < 30) return true;
+    }
+    return false;
+  }
+
+  /** Hint level 1: a soft pulsing glow (and the marker) on the object that matters right now. */
+  highlight(id: string | null): void {
+    if (id === this.highlightId) return;
+    this.highlightId = id;
+    this.scene.tweens.killTweensOf(this.highlightGlow);
+    const v = id ? this.views.get(id) : undefined;
+    if (!v) {
+      this.highlightGlow.setAlpha(0);
+      return;
+    }
+    const p = objectPos(v.o);
+    const h = v.sprite ? Math.min(v.sprite.displayHeight, 60) : 20;
+    this.highlightGlow.setPosition(p.x, p.y - h / 2).setAlpha(0.15);
+    this.scene.tweens.add({ targets: this.highlightGlow, alpha: 0.55, duration: 700, yoyo: true, repeat: -1, ease: "Sine.easeInOut" });
   }
 
   /** Pickups within touch range. */
@@ -281,9 +329,9 @@ export class ObjectsView {
     v.bob?.stop();
     const s = this.scene;
     const p = objectPos(v.o);
-    const fly = s.add.image(p.x, p.y - 6, `icon_${v.o.item}`).setDepth(DEPTH.fx).setVisible(false);
+    const fly = s.add.image(p.x, p.y - 6, `icon_${v.o.item ?? "electronics"}`).setDepth(DEPTH.fx).setVisible(false);
     s.time.delayedCall(delayMs, () => {
-      if (v.o.kind === "buried") {
+      if (v.o.kind === "buried" || v.o.kind === "practiceBuried") {
         v.sprite?.setVisible(false);
         this.sparkle.emitParticleAt(p.x, p.y - 4, 8);
       } else {
@@ -303,7 +351,7 @@ export class ObjectsView {
 
   reveal(id: string): boolean {
     const v = this.views.get(id);
-    if (!v?.sprite || v.o.kind !== "buried" || this.revealed.has(id)) return false;
+    if (!v?.sprite || (v.o.kind !== "buried" && v.o.kind !== "practiceBuried") || this.revealed.has(id)) return false;
     this.revealed.add(id);
     v.sprite.setTexture("mound_revealed");
     this.sparkle.emitParticleAt(v.sprite.x, v.sprite.y - 6, 6);
@@ -332,11 +380,19 @@ export class ObjectsView {
     this.sparks.emitParticleAt(v.sprite.x, v.sprite.y - v.sprite.height + 8, n);
   }
 
-  panelDust(id: string): void {
+  /** Tail sweep: the dust layer is brushed off in the tail's direction, revealing the clean panel. */
+  panelDust(id: string, dir: 1 | -1, reduced: boolean): void {
     const v = this.views.get(id);
     if (!v?.sprite) return;
-    this.moundDust.emitParticleAt(v.sprite.x, v.sprite.y - 18, 14);
-    this.setTexture(id, "panel_clean");
+    const s = this.scene;
+    const overlay = s.add.image(v.sprite.x, v.sprite.y, "panel_dusty").setOrigin(0.5, 1).setDepth(v.sprite.depth + 1);
+    v.sprite.setTexture("panel_clean");
+    if (reduced) {
+      overlay.destroy();
+    } else {
+      s.tweens.add({ targets: overlay, alpha: 0, x: overlay.x + dir * 6, duration: 520, ease: "Quad.easeIn", onComplete: () => overlay.destroy() });
+      for (let i = 0; i < 4; i++) s.time.delayedCall(i * 110, () => this.moundDust.emitParticleAt(v.sprite!.x + dir * (6 + i * 4), v.sprite!.y - 20 + i * 2, 5));
+    }
     this.sparkle.emitParticleAt(v.sprite.x + 8, v.sprite.y - 22, 4);
   }
 
@@ -403,6 +459,74 @@ export class ObjectsView {
     if (!g) return;
     g.setAlpha(0.7);
     this.scene.tweens.add({ targets: g, alpha: 0.1, duration: 600, yoyo: true, repeat: -1 });
+  }
+
+  /** Makes the training-bay objects match the (isolated) tutorial state; null = campaign view. */
+  syncPractice(t: TutorialState | null): void {
+    const con = this.views.get("practice_console");
+    const bur = this.views.get("practice_buried");
+    const consoleOn = !t || t.facts.consoleUsed;
+    con?.sprite?.setTexture(consoleOn ? "practice_console_on" : "practice_console_off");
+    if (con) (con.extra[0] as Phaser.GameObjects.Image).setVisible(!consoleOn);
+    if (bur?.sprite) {
+      const hidden = !t || t.facts.collected;
+      bur.sprite.setVisible(!hidden).setTexture(t?.facts.revealed ? "mound_revealed" : "mound");
+      if (t && !t.facts.revealed) this.revealed.delete("practice_buried");
+      if (t?.facts.revealed) this.revealed.add("practice_buried");
+    }
+    this.setFan(!t || t.facts.repaired);
+  }
+
+  consoleOn(): void {
+    const con = this.views.get("practice_console");
+    if (!con?.sprite) return;
+    this.setTexture("practice_console", "practice_console_on");
+    (con.extra[0] as Phaser.GameObjects.Image).setVisible(false);
+    this.sparkle.emitParticleAt(con.sprite.x, con.sprite.y - 20, 6);
+  }
+
+  setFan(on: boolean): void {
+    const fan = this.views.get("training_machine");
+    if (!fan?.sprite) return;
+    this.fanTimer?.remove();
+    this.fanTimer = null;
+    fan.sprite.setTexture(on ? "training_machine_on0" : "training_machine_off");
+    if (on) {
+      let f = 0;
+      this.fanTimer = this.scene.time.addEvent({
+        delay: 90,
+        loop: true,
+        callback: () => fan.sprite?.setTexture((f++ % 2) === 0 ? "training_machine_on1" : "training_machine_on0"),
+      });
+    }
+  }
+
+  repairBurst(id: string): void {
+    const v = this.views.get(id);
+    if (!v?.sprite) return;
+    this.sparks.emitParticleAt(v.sprite.x, v.sprite.y - v.sprite.height / 2, 12);
+    this.scene.tweens.add({ targets: v.sprite, scaleX: 1.08, scaleY: 0.93, duration: 90, yoyo: true, repeat: 1 });
+  }
+
+  /** The echo sensor answers a bark: cups spin, lights blink, and it "replies". */
+  echo(id: string): void {
+    const v = this.views.get(id);
+    if (!v?.sprite) return;
+    let f = 0;
+    this.scene.time.addEvent({
+      delay: 80,
+      repeat: 22,
+      callback: () => v.sprite?.setTexture(f++ >= 22 ? "echo_sensor_idle" : f % 2 ? "echo_sensor_on1" : "echo_sensor_on0"),
+    });
+    this.sparkle.emitParticleAt(v.sprite.x, v.sprite.y - 30, 6);
+  }
+
+  /** Barking near rover R-2 makes its camera mast perk up. */
+  roverBeep(id: string): void {
+    const v = this.views.get(id);
+    if (!v?.sprite) return;
+    this.scene.tweens.add({ targets: v.sprite, y: v.sprite.y - 2, duration: 80, yoyo: true, repeat: 2 });
+    this.sparkle.emitParticleAt(v.sprite.x + 12, v.sprite.y - 34, 4);
   }
 
   positionOf(id: string): { x: number; y: number } {

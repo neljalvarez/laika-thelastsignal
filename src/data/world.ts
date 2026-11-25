@@ -27,6 +27,7 @@ export enum T {
   Crate = 7,
   Door = 8, // solid until opened (hatch / station door)
   Bridge = 9, // placed when the bridge extends
+  FloorHatch = 10, // the hatch between the ship's two decks (open after Mission 00)
 }
 
 export enum B {
@@ -55,12 +56,19 @@ export const TERRAIN: TerrainOp[] = [
   fill(T.Rock, 0, 1, 8, WORLD_H - 1),
   fill(T.Rock, WORLD_W - 3, WORLD_W - 1, 8, WORLD_H - 1),
 
-  // ---------------- A: the spacecraft ----------------
-  fill(T.Hull, 3, 23, 14, 15), // roof
-  fill(T.Hull, 3, 3, 14, 23), // aft wall
-  fill(T.Hull, 23, 23, 14, 23), // nose wall
-  fill(T.Hull, 3, 23, 22, 23), // deck
+  // ---------------- A: the spacecraft (two decks) ----------------
+  // Upper deck (rows 8-13): Laika's quarters and training bay, where Mission 00 takes place.
+  // Lower deck (rows 16-21): cockpit and cargo bay with the radio and the hatch (Mission 01).
+  fill(T.Hull, 3, 23, 6, 7), // roof
+  fill(T.Hull, 3, 3, 6, 23), // aft wall
+  fill(T.Hull, 23, 23, 6, 23), // nose wall
+  fill(T.Hull, 3, 23, 14, 15), // floor between the decks
+  fill(T.Hull, 3, 23, 22, 23), // lower deck
+  back(B.Hull, 4, 22, 8, 13),
   back(B.Hull, 4, 22, 16, 21),
+  fill(T.FloorHatch, 21, 22, 14, 15), // opens at the end of Mission 00
+  back(B.Hull, 21, 22, 14, 15), // hull wall behind the open hatch shaft (no sky showing through)
+  fill(T.Crate, 11, 11, 13, 13), // training crate: the tutorial's first jump
   fill(T.Door, 23, 23, 19, 21), // hatch
   fill(T.Crate, 15, 15, 21, 21), // fallen cargo crate: the first jump
   fill(T.Hull, 24, 25, 22, 23), // hatch landing
@@ -85,6 +93,10 @@ export const TERRAIN: TerrainOp[] = [
   clear(112, 122, 28, 30),
   fill(T.Ledge, 115, 116, 28, 28),
   fill(T.Ledge, 119, 120, 28, 28),
+  // Phase 2: a low one-way step in the west gap. A jump that comes up short heading west (easy with the new apex
+  // hang, which carries a fully held sprint jump past the stones) climbs straight out instead of looping back
+  // through the tunnel: pit floor -> step (1 tile) -> west lip (2 tiles).
+  fill(T.Ledge, 113, 114, 30, 30),
   back(B.Cave, 112, 122, 29, 30),
 
   // Survey tunnel: the pit drains east under the canyon floor and the mesa.
@@ -141,6 +153,12 @@ export const HATCH_TILES: Array<[number, number]> = [
   [23, 20],
   [23, 21],
 ];
+export const FLOOR_HATCH_TILES: Array<[number, number]> = [
+  [21, 14],
+  [22, 14],
+  [21, 15],
+  [22, 15],
+];
 export const STATION_DOOR_TILES: Array<[number, number]> = [
   [216, 21],
   [216, 22],
@@ -169,7 +187,11 @@ export type ObjectKind =
   | "stationDoor"
   | "log"
   | "beacon"
-  | "secret";
+  | "secret"
+  | "practiceConsole"
+  | "practiceBuried"
+  | "trainingMachine"
+  | "echoSensor";
 
 export interface WorldObject {
   id: string;
@@ -190,7 +212,12 @@ export interface WorldObject {
 }
 
 export const OBJECTS: WorldObject[] = [
-  // ---- A: spacecraft ----
+  // ---- A: spacecraft, upper deck (Mission 00 practice objects; never part of the campaign state) ----
+  { id: "practice_console", kind: "practiceConsole", col: 14, row: 14, label: "training console" },
+  { id: "practice_buried", kind: "practiceBuried", col: 18, row: 14, label: "soil tray" },
+  { id: "training_machine", kind: "trainingMachine", col: 20, row: 14, label: "air fan" },
+
+  // ---- A: spacecraft, lower deck ----
   { id: "cp_ship", kind: "checkpoint", col: 6, row: 22, label: "Ship" },
   { id: "shipRadio", kind: "shipRadio", col: 9, row: 22, label: "ship radio" },
   { id: "metal_ship", kind: "pickup", col: 12, row: 22, item: "metal" },
@@ -212,6 +239,14 @@ export const OBJECTS: WorldObject[] = [
   { id: "panel_3", kind: "solarPanel", col: 48, row: 24, dx: -4 },
   { id: "battery", kind: "battery", col: 53, row: 24, label: "battery station" },
   { id: "habitat", kind: "habitat", col: 61, row: 24, label: "habitat" },
+  {
+    id: "echo_sensor",
+    kind: "echoSensor",
+    col: 66,
+    row: 24,
+    label: "echo sensor",
+    fact: "Sound is quieter on Mars and travels slower than on Earth, because the air is so thin.",
+  },
   { id: "receiver", kind: "receiver", col: 70, row: 24, label: "comms receiver" },
   { id: "workstation", kind: "workstation", col: 77, row: 24, label: "repair workstation" },
   { id: "metal_crates", kind: "pickup", col: 84, row: 22, dx: 8, item: "metal" },
@@ -354,11 +389,25 @@ export interface TileRect {
 
 /** Building interiors: the exterior shell fades out while Laika is inside. */
 export const INTERIORS: Record<"ship" | "station", TileRect> = {
-  ship: { x0: 3, x1: 23, y0: 14, y1: 23 },
+  ship: { x0: 3, x1: 23, y0: 6, y1: 23 },
   station: { x0: 216, x1: 235, y0: 13, y1: 23 },
 };
 
 /** Secret areas: covered by a false rock wall that fades when Laika walks in. */
 export const SECRETS: Array<{ id: string; rect: TileRect }> = [{ id: "secret_room", rect: { x0: 105, x1: 111, y0: 29, y1: 30 } }];
 
+/** Campaign start (lower deck), used when the tutorial is skipped. */
 export const SPAWN = { col: 6, row: 22 };
+/** Mission 00 starts on the upper deck, by Laika's bed. */
+export const TUTORIAL_SPAWN = { col: 6, row: 14 };
+/** The tutorial ends when Laika drops through the floor hatch onto the lower deck. */
+export const TUTORIAL_EXIT_ROW = 16;
+/** Ids of objects that only exist for Mission 00. */
+export const PRACTICE_IDS = new Set(["practice_console", "practice_buried", "training_machine"]);
+
+/** Optional areas: time spent here never counts towards automatic hints. */
+export const OPTIONAL_ZONES: TileRect[] = [
+  { x0: 133, x1: 147, y0: 8, y1: 23 }, // mesa ledges
+  { x0: 104, x1: 111, y0: 28, y1: 31 }, // secret room
+  { x0: 200, x1: 211, y0: 25, y1: 33 }, // chasm floor
+];

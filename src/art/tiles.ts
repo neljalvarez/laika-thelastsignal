@@ -16,7 +16,7 @@ export const TILESET_ROWS = 10;
 // Row layout of the tileset image.
 const ROW = { regolith: 0, rock: 1, hull: 2, special: 3, back: 4, alts: 5, regolithDeep: 6, rockDeep: 7, cave: 8 };
 
-export const SPECIAL = { crate: 0, door: 1, ledgeL: 2, ledgeM: 3, ledgeR: 4, scaffoldL: 5, scaffoldM: 6, scaffoldR: 7, bridge: 8, stationDoor: 9 };
+export const SPECIAL = { crate: 0, door: 1, ledgeL: 2, ledgeM: 3, ledgeR: 4, scaffoldL: 5, scaffoldM: 6, scaffoldR: 7, bridge: 8, stationDoor: 9, floorHatch: 10 };
 
 export function tileIndex(row: number, col: number): number {
   return row * TILESET_COLS + col;
@@ -159,6 +159,13 @@ function door(p: Painter, ox: number, oy: number, station: boolean): void {
   p.rect(ox + 7, oy + 6, 2, 3, station ? C.red : C.orange);
 }
 
+function floorHatch(p: Painter, ox: number, oy: number): void {
+  p.rect(ox, oy, TS, TS, C.steelDD);
+  p.rect(ox, oy + 1, TS, TS - 2, C.steelD);
+  for (let x = 0; x < TS; x += 4) p.rect(ox + x, oy + 1, 2, 2, C.yellow).rect(ox + x + 2, oy + 1, 2, 2, C.out);
+  p.rect(ox, oy + 7, TS, 1, C.steel).rect(ox + 6, oy + 9, 4, 3, C.steel);
+}
+
 function ledge(p: Painter, ox: number, oy: number, end: "L" | "M" | "R", seed: number): void {
   const r = rng(seed);
   const x0 = end === "L" ? 2 : 0;
@@ -250,6 +257,7 @@ export function drawTileset(): HTMLCanvasElement {
   scaffold(p, SPECIAL.scaffoldR * TS, sy, "R");
   bridge(p, SPECIAL.bridge * TS, sy);
   door(p, SPECIAL.stationDoor * TS, sy, true);
+  floorHatch(p, SPECIAL.floorHatch * TS, sy);
   for (let v = 0; v < 4; v++) {
     backTile(p, v * TS, ROW.back * TS, "hull", v);
     backTile(p, (4 + v) * TS, ROW.back * TS, "cave", v);

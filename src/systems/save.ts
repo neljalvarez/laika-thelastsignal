@@ -7,6 +7,7 @@
 import { SAVE_BACKUP_KEY, SAVE_KEY } from "../config/constants";
 import { ITEM_ORDER, RECIPES, type ItemId } from "../data/items";
 import { OBJECTS } from "../data/world";
+import { STAGE_ORDER, type TutorialStageId } from "../data/tutorial";
 import { ALL_FLAGS, createNewState, SOLAR_PANELS, STATE_VERSION, type AbilityId, type GameState } from "./state";
 
 export interface KeyValueStore {
@@ -38,10 +39,21 @@ const strArray = (v: unknown): string[] => (Array.isArray(v) ? v.filter((x): x i
 const CHECKPOINT_IDS = new Set(OBJECTS.filter((o) => o.kind === "checkpoint").map((o) => o.id));
 const OBJECT_IDS = new Set(OBJECTS.map((o) => o.id));
 
-/** Upgrades older save formats. Version 1 is the first; future versions add steps here. */
+/**
+ * Upgrades older save formats step by step.
+ * v1 -> v2 (Phase 2): Phase 1 players never saw Mission 00. They keep everything and are not
+ * forced through it: the tutorial is recorded as "skipped" (they can replay it from Pause), and
+ * they gain the Bark ability.
+ */
 export function migrate(raw: Record<string, unknown>): Record<string, unknown> | null {
-  const v = typeof raw.version === "number" ? raw.version : NaN;
-  if (v === STATE_VERSION) return raw;
+  let v = typeof raw.version === "number" ? raw.version : NaN;
+  let data = { ...raw };
+  if (v === 1) {
+    const abilities = isObj(data.abilities) ? { ...data.abilities, bark: true } : { bark: true };
+    data = { ...data, version: 2, abilities, tutorial: { status: "skipped", stage: "done" } };
+    v = 2;
+  }
+  if (v === STATE_VERSION) return data;
   return null; // unknown / future version: incompatible
 }
 
@@ -70,6 +82,13 @@ export function sanitize(raw: Record<string, unknown>): GameState {
   s.checkpoint = CHECKPOINT_IDS.has(cp) ? cp : "cp_ship";
   s.visitedCheckpoints = [...new Set(["cp_ship", ...strArray(raw.visitedCheckpoints).filter((c) => CHECKPOINT_IDS.has(c))])];
   if (typeof raw.playTimeMs === "number" && Number.isFinite(raw.playTimeMs)) s.playTimeMs = Math.max(0, raw.playTimeMs);
+  // Tutorial record: anything unreadable recovers to "skipped" so a broken record can never trap
+  // the player in Mission 00 or lock them out of the campaign.
+  const t = isObj(raw.tutorial) ? raw.tutorial : null;
+  const status = t && (t.status === "active" || t.status === "done" || t.status === "skipped") ? t.status : "skipped";
+  const stage = t && typeof t.stage === "string" && STAGE_ORDER.includes(t.stage as TutorialStageId) ? (t.stage as TutorialStageId) : "done";
+  s.tutorial = { status, stage: status === "active" ? stage : "done" };
+  if (s.tutorial.status === "active" && (s.flags.hatchOpen || s.flags.checkedShipRadio)) s.tutorial = { status: "done", stage: "done" };
   return s;
 }
 

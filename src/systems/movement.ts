@@ -42,7 +42,7 @@ export interface MoveContext {
   locked: boolean;
 }
 
-export type MoveEvent = "jump" | "airJump" | "land" | "leaveGround";
+export type MoveEvent = "jump" | "airJump" | "land" | "leaveGround" | "turn";
 
 export function initialMoveState(): MoveState {
   return { vx: 0, vy: 0, facing: 1, coyote: 0, buffer: 0, rising: false, airJumpsUsed: 0, grounded: true };
@@ -77,12 +77,15 @@ export function stepMovement(prev: MoveState, input: MoveInput, ctx: MoveContext
 
   // Horizontal.
   const dir = ctx.locked ? 0 : (input.right ? 1 : 0) - (input.left ? 1 : 0);
-  if (dir !== 0) s.facing = dir as 1 | -1;
+  if (dir !== 0 && dir !== s.facing) {
+    if (ctx.grounded && Math.abs(s.vx) > t.walkSpeed * 0.6) events.push("turn");
+    s.facing = dir as 1 | -1;
+  }
   const maxSpeed = input.sprint ? t.sprintSpeed : t.walkSpeed;
   const target = dir * maxSpeed;
   let accel: number;
   if (dir === 0) accel = ctx.grounded ? t.groundDecel : t.airDecel;
-  else if (Math.sign(s.vx) !== 0 && Math.sign(s.vx) !== dir) accel = t.turnAccel;
+  else if (Math.sign(s.vx) !== 0 && Math.sign(s.vx) !== dir) accel = ctx.grounded ? t.turnAccel : t.airTurnAccel;
   else accel = ctx.grounded ? t.groundAccel : t.airAccel;
   s.vx = approach(s.vx, target, accel * dt);
 
@@ -120,7 +123,8 @@ export function stepMovement(prev: MoveState, input: MoveInput, ctx: MoveContext
 
   // Gravity (heavier when falling), terminal velocity, optional glide. Gravity also applies on
   // the ground so the body keeps pressing into the floor and ground contact never flickers.
-  const g = s.vy > 0 ? t.gravity * t.fallGravityMult : t.gravity;
+  let g = s.vy > 0 ? t.gravity * t.fallGravityMult : t.gravity;
+  if (!s.grounded && input.jumpHeld && Math.abs(s.vy) < t.apexHangSpeed) g = t.gravity * t.apexHangMult;
   s.vy += g * dt;
   let maxFall = t.maxFall;
   if (t.glideMaxFall > 0 && input.jumpHeld && s.vy > 0 && !s.grounded) maxFall = t.glideMaxFall;

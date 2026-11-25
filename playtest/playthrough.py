@@ -81,6 +81,13 @@ async def jump_dir(bot, key, hold=420, sprint=True, pre=120):
     if sprint: await pg.keyboard.up('ShiftLeft')
     await pg.wait_for_timeout(200)
 
+async def controlled_hop(pg, key, steer_ms=200, hold=450):
+    """Full-height jump while steering only for `steer_ms`, so Laika lands close by (stepping onto a small step)."""
+    await pg.keyboard.down('Space'); await pg.keyboard.down(key)
+    await pg.wait_for_timeout(steer_ms); await pg.keyboard.up(key)
+    await pg.wait_for_timeout(max(0, hold - steer_ms)); await pg.keyboard.up('Space')
+    await pg.wait_for_timeout(700)
+
 async def main():
     async with async_playwright() as p:
         b = await p.chromium.launch(executable_path=os.environ.get('CHROME') or None, args=['--use-gl=swiftshader','--enable-unsafe-swiftshader'])
@@ -89,8 +96,11 @@ async def main():
         pg.on('pageerror', lambda e: errs.append(f'PAGEERROR: {e}'))
         pg.on('console', lambda m: errs.append(f'console.{m.type}: {m.text}') if m.type=='error' else None)
         await pg.goto(URL); await pg.wait_for_timeout(1500)
-        await pg.get_by_text('New Game').click(); await pg.wait_for_timeout(3500)
-        bot=Bot(pg); t0=time.time()
+        await pg.get_by_text('New Game').click(); await pg.wait_for_timeout(2800)
+        # Phase 2: New Game opens Mission 00. This Phase 1 route skips it (phase2.py plays it).
+        await pg.get_by_text('Skip tutorial').click(); await pg.wait_for_timeout(300)
+        await pg.locator('.screen').get_by_role('button', name='Skip tutorial').click(); await pg.wait_for_timeout(3400)
+        bot=Bot(pg); t0=time.time(); await bot.close_trans()
         await bot.walk_to(9); await bot.interact('shipRadio')
         await bot.walk_to(21); await bot.interact('hatch')
         await bot.walk_to(70); await bot.interact('receiver')
@@ -128,8 +138,13 @@ async def main():
         if p1['row']<=27 and p1['col']>=113:
             await jump_dir(bot, 'ArrowLeft'); print('after jump 3', await bot.P())
         p1=await bot.P()
-        if p1['row']>27:
-            print('fell into the pit; using tunnel + retry from east'); bot.log.append('bot fell in pit on return')
+        if p1['row']>27 and p1['col']<=118:
+            # Phase 2: a short jump lands in the pit; climb out by the one-way step at cols 113-114.
+            print('fell into the pit; climbing out by the west step'); bot.log.append('bot fell in pit on return (used the step)')
+            await bot.walk_to(115)
+            await controlled_hop(pg, 'ArrowLeft', steer_ms=200)
+            await controlled_hop(pg, 'ArrowLeft', steer_ms=700)
+            print('after climbing out', await bot.P())
         await bot.walk_to(70); print('back at receiver', await bot.P(), await bot.T())
         await bot.interact('receiver'); await pg.wait_for_timeout(500)
         print('tune', await bot.T())
@@ -152,4 +167,5 @@ async def main():
         open(OUT+'save_complete.json','w').write(ls or '')
         print('errs', errs[:10]); print('log', bot.log)
         await b.close()
-asyncio.run(main())
+if __name__ == "__main__":
+    asyncio.run(main())

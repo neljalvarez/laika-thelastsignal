@@ -93,7 +93,7 @@ export const CUES: Record<string, Cue> = {
   },
   sweep: {
     wave: "square",
-    gain: 0.07,
+    gain: 0.05,
     gap: 300,
     notes: [
       { f: 800, to: 3200, t: 0, d: 0.22, noise: true, q: 1.5 },
@@ -158,6 +158,17 @@ export const CUES: Record<string, Cue> = {
   click: { wave: "square", gain: 0.035, gap: 50, notes: seq([660, 990], 0.035) },
   hover: { wave: "square", gain: 0.012, gap: 60, notes: [{ f: 880, t: 0, d: 0.02 }] },
   thud: { wave: "triangle", gain: 0.1, gap: 300, notes: [{ f: 90, to: 50, t: 0, d: 0.2 }] },
+  // ---- Phase 2 ----
+  /** Paws skidding when Laika turns at speed. */
+  skid: { wave: "square", gain: 0.05, gap: 200, notes: [{ f: 2600, to: 1200, t: 0, d: 0.09, noise: true, q: 1.4 }] },
+  /** Tutorial stage complete: short, bright, distinct from item pickups. */
+  stageDone: { wave: "triangle", gain: 0.09, gap: 300, notes: [...seq([659, 880, 1175], 0.06, 0.08), { f: 1568, t: 0.2, d: 0.16, g: 0.7 }] },
+  /** The echo sensor replays the bark as a little beep tune. */
+  beepTune: { wave: "square", gain: 0.035, gap: 600, notes: [...seq([523, 784, 659, 1047], 0.11, 0.09)] },
+  roverBeep: { wave: "square", gain: 0.035, gap: 500, notes: seq([988, 740], 0.09, 0.07) },
+  yawn: { wave: "triangle", gain: 0.05, gap: 2000, notes: [{ f: 520, to: 760, t: 0, d: 0.22 }, { f: 760, to: 380, t: 0.22, d: 0.45 }] },
+  /** Scanner tracking tick (pitch carries distance; the HUD meter shows the same thing). */
+  track: { wave: "sine", gain: 0.05, gap: 80, notes: [{ f: 1100, t: 0, d: 0.06 }] },
 };
 
 export class AudioManager {

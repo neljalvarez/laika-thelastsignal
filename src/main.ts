@@ -60,3 +60,10 @@ game.events.once(Phaser.Core.Events.READY, fitUi);
 window.setTimeout(fitUi, 200);
 
 document.getElementById("rotate-hint")?.classList.add("enabled");
+
+// No accidental browser zooming or scrolling during play (iOS pinch / double-tap).
+document.addEventListener("gesturestart", (e) => e.preventDefault());
+document.addEventListener("dblclick", (e) => e.preventDefault(), { passive: false });
+document.addEventListener("touchmove", (e) => {
+  if (!(e.target as HTMLElement)?.closest?.("[data-menu]")) e.preventDefault();
+}, { passive: false });

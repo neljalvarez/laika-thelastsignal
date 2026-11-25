@@ -1,7 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { ASSIST_TUNING, TUNING } from "../src/config/constants";
 import { RECIPES } from "../src/data/items";
-import { HATCH_TILES, INTERIORS, OBJECTS, SPAWN, STATION_DOOR_TILES, T } from "../src/data/world";
+import { FLOOR_HATCH_TILES, HATCH_TILES, INTERIORS, OBJECTS as ALL_OBJECTS, PRACTICE_IDS, SPAWN, STATION_DOOR_TILES, T, TUTORIAL_SPAWN } from "../src/data/world";
+
+/** Campaign objects (Mission 00 practice objects live on the sealed upper deck and are tested separately). */
+const OBJECTS = ALL_OBJECTS.filter((o) => !PRACTICE_IDS.has(o.id));
 import { maxJumpHeight } from "../src/systems/movement";
 import {
   BASIC_JUMP,
@@ -110,6 +113,52 @@ describe("world layout", () => {
       const o = OBJECTS.find((x) => x.id === id)!;
       const from = standCellFor(full, o.col, o.row)!;
       expect(reachableFrom(full, from[0], from[1], easy).has(cellKey(...standCellFor(full, 70, 24)!)), id).toBe(true);
+    }
+  });
+
+  it("a short westward jump at the pit climbs straight out (no loop back through the tunnel)", () => {
+    const easy: JumpAbility = { up: 2, across: 4 };
+    // BFS restricted to the pit and its west rim (cols 100-122), so the tunnel route cannot be used.
+    const floor: [number, number] = [112, 30]; // standing on the pit floor in the west gap
+    expect(canStand(full, ...floor)).toBe(true);
+    const goal = cellKey(109, 27); // standing on the west rim
+    expect(canStand(full, 109, 27)).toBe(true);
+    const seen = new Set([cellKey(...floor)]);
+    const queue: Array<[number, number]> = [floor];
+    let found = false;
+    while (queue.length && !found) {
+      const [c, r] = queue.shift()!;
+      for (const n of neighbours(full, c, r, easy)) {
+        if (n[0] < 100 || n[0] > 122 || seen.has(cellKey(...n))) continue;
+        if (cellKey(...n) === goal) found = true;
+        seen.add(cellKey(...n));
+        queue.push(n);
+      }
+    }
+    expect(found).toBe(true);
+  });
+
+  it("Mission 00: the upper deck is sealed from the campaign, its practice objects are easy to reach, and the hatch leads down", () => {
+    const tut: [number, number] = [TUTORIAL_SPAWN.col, TUTORIAL_SPAWN.row - 1];
+    const easy: JumpAbility = { up: 2, across: 4 };
+    // Campaign players on the lower deck can never wander into the training bay.
+    for (const g of [opened, full]) {
+      const r = reachableFrom(g, spawn[0], spawn[1], BOOTS_JUMP);
+      expect(r.has(cellKey(...tut))).toBe(false);
+    }
+    // Before the hatch opens, the tutorial is confined to the upper deck but every practice object is reachable.
+    const closed = reachableFrom(base, tut[0], tut[1], easy);
+    for (const id of PRACTICE_IDS) {
+      const o = ALL_OBJECTS.find((x) => x.id === id)!;
+      expect(closed.has(cellKey(...standCellFor(base, o.col, o.row)!)), id).toBe(true);
+    }
+    expect(closed.has(cellKey(...spawn))).toBe(false);
+    // With the floor hatch open, Laika drops onto the lower deck and can reach the radio and the hatch.
+    const dropped = withCleared(base, FLOOR_HATCH_TILES);
+    const r = reachableFrom(dropped, tut[0], tut[1], easy);
+    for (const id of ["shipRadio", "hatch"]) {
+      const o = ALL_OBJECTS.find((x) => x.id === id)!;
+      expect(r.has(cellKey(...standCellFor(dropped, o.col, o.row)!)), id).toBe(true);
     }
   });
 

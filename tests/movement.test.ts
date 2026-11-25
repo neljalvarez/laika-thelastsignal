@@ -134,3 +134,40 @@ describe("movement controller", () => {
     expect(s.vy).toBeLessThan(60);
   });
 });
+
+describe("movement controller: horizontal jump distance (Phase 2 tuning)", () => {
+  /** Walk (or sprint) for 0.5 s, then a full held jump; returns the distance covered in the air. */
+  function airDistance(fps: number, sprint = false) {
+    const dt = 1000 / fps;
+    let s = initialMoveState();
+    let x = 0;
+    let y = 0;
+    let takeoff = NaN;
+    for (let i = 0; i < Math.round(fps * 2); i++) {
+      const runUp = i < Math.round(fps * 0.5);
+      const grounded = y >= 0 && s.vy >= 0;
+      const inp = { ...none, right: true, sprint, jumpHeld: !runUp, jumpPressed: i === Math.round(fps * 0.5) };
+      s = stepMovement(s, inp, ctx(grounded, dt)).state;
+      x += (s.vx * dt) / 1000;
+      y += (s.vy * dt) / 1000;
+      if (y < 0 && Number.isNaN(takeoff)) takeoff = x;
+      if (y >= 0 && !Number.isNaN(takeoff)) return x - takeoff;
+      if (y > 0) y = 0;
+    }
+    return NaN;
+  }
+
+  it("is frame-rate independent (30 vs 60 vs 144 fps)", () => {
+    for (const sprint of [false, true]) {
+      const d60 = airDistance(60, sprint);
+      expect(Math.abs(airDistance(30, sprint) - d60)).toBeLessThan(8);
+      expect(Math.abs(airDistance(144, sprint) - d60)).toBeLessThan(4);
+    }
+  });
+
+  it("a walking jump clears the level's 'easy jump' of 4 tiles, and sprinting goes further", () => {
+    const walk = airDistance(60);
+    expect(walk).toBeGreaterThan(4 * 16);
+    expect(airDistance(60, true)).toBeGreaterThan(walk);
+  });
+});
