@@ -18,12 +18,31 @@ export interface ObjectiveStep {
 }
 
 export interface Objective {
-  /** Stable id of the stage (used for idle hints and tests). */
+  /** Stable id of the stage (used for hints and tests). */
   stage: string;
   title: string;
+  /** ONE actionable instruction: what to do and where. Shown in the collapsed HUD. */
+  primary: string;
+  /** The action used to do it (its key / button is shown next to the instruction). */
+  action?: "interact" | "sniff" | "jump" | "move";
+  /** World object (or area marker) the primary instruction refers to, for hints and guidance. */
+  target?: string;
+  /** Full checklist, shown only when the mission panel is expanded. */
   steps: ObjectiveStep[];
-  /** Optional hint shown on request or after the player has been idle a while. */
+  /** Optional goals, always presented separately from the main objective. */
+  optional: ObjectiveStep[];
+  /** Hint text (hint level 2). */
   hint: string;
+}
+
+/** Optional goals: samples, the secret treat, Thruster Boots. Never required. */
+export function optionalGoals(s: GameState): ObjectiveStep[] {
+  const samples = OBJECTS.filter((o) => o.item === "sample").length;
+  return [
+    { text: `Geological samples (${Math.min(count(s, "sample"), samples)}/${samples})`, done: count(s, "sample") >= samples },
+    { text: "Find the secret Golden Treat", done: s.collected.includes("treat") },
+    { text: "Build Thruster Boots at the workstation", done: s.abilities.thrusters },
+  ];
 }
 
 export function getObjective(s: GameState): Objective {
@@ -31,25 +50,40 @@ export function getObjective(s: GameState): Objective {
   if (!f.hatchOpen && !f.checkedShipRadio) {
     return {
       stage: "radio",
-      title: "Wake up, Laika",
+      title: "Mission 01: A Signal in the Silence",
+      primary: "Check the ship's radio, on the left of the lower deck.",
+      action: "interact",
+      target: "shipRadio",
       steps: [{ text: "Check the ship's radio", done: false }],
-      hint: "Walk with A / D or the arrow keys. Stand by the blinking radio and press Interact.",
+      optional: [],
+      hint: "Walk left to the blinking radio and press Interact.",
     };
   }
   if (!f.hatchOpen) {
     return {
       stage: "hatch",
-      title: "Get out of the ship",
-      steps: [{ text: "Jump over the crate and open the hatch", done: false }],
-      hint: "Press Jump to hop over the crate. The hatch is at the right end of the ship.",
+      title: "Mission 01: A Signal in the Silence",
+      primary: "Open the hatch at the right end of the ship.",
+      action: "interact",
+      target: "hatch",
+      steps: [
+        { text: "Check the ship's radio", done: true },
+        { text: "Open the hatch", done: false },
+      ],
+      optional: [],
+      hint: "Hop over the cargo crate and walk to the striped door on the right.",
     };
   }
   if (!f.inspectedReceiver) {
     return {
       stage: "receiver",
-      title: "Find a working radio",
+      title: "Mission 01: A Signal in the Silence",
+      primary: "Head east to the outpost and inspect the big radio dish.",
+      action: "interact",
+      target: "receiver",
       steps: [{ text: "Find the outpost's comms receiver", done: false }],
-      hint: "Head right. The receiver is the big dish past the habitat dome.",
+      optional: [],
+      hint: "Walk right, past the solar panels and the dome. The dish is on a tall mast.",
     };
   }
   if (!f.commsOnline) {
@@ -86,20 +120,57 @@ export function getObjective(s: GameState): Objective {
     } else if (!f.moduleInstalled) {
       hint = "Take the module back to the comms receiver dish at the outpost.";
     }
-    return { stage: "restore", title: "Restore the outpost radio", steps, hint };
+    // Recommend ONE logical next step, without blocking other orders.
+    let primary: string;
+    let target: string;
+    let action: Objective["action"] = "interact";
+    if (ready) {
+      primary = "Everything is fixed! Tune the radio dish.";
+      target = "receiver";
+    } else if (!f.solarRepaired && metal >= needM && elec >= needE) {
+      primary = "You have the parts! Repair the solar array's control box.";
+      target = "solarControl";
+    } else if (!f.solarRepaired) {
+      primary = `Find spare parts (Metal ${Math.min(metal, needM)}/${needM}, Electronics ${Math.min(elec, needE)}/${needE}): sniff east of the outpost.`;
+      // Point at the first part still lying in the world that is actually needed.
+      target =
+        OBJECTS.find(
+          (o) => !s.collected.includes(o.id) && ((o.item === "metal" && metal < needM) || (o.item === "electronics" && elec < needE)),
+        )?.id ?? "receiver";
+      action = "sniff";
+    } else if (!allPanelsClean(s)) {
+      primary = `Sweep the dusty solar panels with your tail (${SOLAR_PANELS.length - swept} left).`;
+      target = SOLAR_PANELS.find((p) => !s.sweptPanels.includes(p)) ?? "panel_1";
+    } else if (hasModule) {
+      primary = "Carry the comms module back to the radio dish.";
+      target = "receiver";
+    } else {
+      primary = "Find the missing comms module near the rover wreck in Crimson Canyon.";
+      target = "comms_module";
+      action = "sniff";
+    }
+    return { stage: "restore", title: "Restore the outpost radio", primary, action, target, steps, optional: optionalGoals(s), hint };
   }
   if (!f.bridgeExtended) {
     return {
       stage: "bridge",
       title: "Follow the signal east",
+      primary: "Cross Crimson Canyon to the east rim and extend the bridge.",
+      action: "interact",
+      target: "bridgeControl",
       steps: [{ text: "Extend the canyon bridge", done: false }],
-      hint: "Cross Crimson Canyon past the rover. The bridge control is on the east rim.",
+      optional: optionalGoals(s),
+      hint: "Go past the rover wreck and climb the steps. The yellow bridge control is at the edge of the chasm.",
     };
   }
   if (!f.reachedStation) {
     return {
       stage: "station",
       title: "Follow the signal east",
+      primary: f.stationDoorOpen ? "Go inside the research station." : "Cross the bridge and open the research station door.",
+      action: "interact",
+      target: "stationDoor",
+      optional: optionalGoals(s),
       steps: [
         { text: "Extend the canyon bridge", done: true },
         { text: f.stationDoorOpen ? "Enter the research station" : "Open the research station door", done: false },
@@ -111,14 +182,20 @@ export function getObjective(s: GameState): Objective {
     return {
       stage: "beacon",
       title: "Find the source of the signal",
+      primary: "Trace the signal at the console at the back of the station.",
+      action: "interact",
+      target: "beacon",
       steps: [{ text: "Trace the signal at the station console", done: false }],
-      hint: "The signal console is at the far end of the station.",
+      optional: optionalGoals(s),
+      hint: "Walk to the far right end of the station. The console has a ring antenna on top.",
     };
   }
   const samples = OBJECTS.filter((o) => o.item === "sample").length;
   return {
     stage: "complete",
     title: "Mission 01 complete!",
+    primary: "Explore freely: there are still secrets on this hill.",
+    optional: optionalGoals(s),
     steps: [
       { text: `Geological samples (${Math.min(count(s, "sample"), samples)}/${samples})`, done: count(s, "sample") >= samples },
       { text: "Find the secret Golden Treat", done: s.collected.includes("treat") },

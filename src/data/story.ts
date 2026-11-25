@@ -41,6 +41,14 @@ export const TRANSMISSIONS: Record<string, Transmission> = {
       { speaker: "SUIT", text: "Scanner unlocked! Press SNIFF to search for buried parts." },
     ],
   },
+  receiverInspectKnown: {
+    id: "receiverInspectKnown",
+    title: "COMMS RECEIVER",
+    lines: [
+      { speaker: "RECEIVER", text: "OFFLINE. No power. Comms module: MISSING.", static: true },
+      { speaker: "SUIT", text: "Spare parts must be buried out there. Time to use your nose!" },
+    ],
+  },
   firstSignal: {
     id: "firstSignal",
     title: "UNKNOWN SIGNAL",

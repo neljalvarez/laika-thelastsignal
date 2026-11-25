@@ -13,16 +13,21 @@ export interface InputFrame {
   jumpPressed: boolean;
   interactPressed: boolean;
   sniffPressed: boolean;
+  barkPressed: boolean;
+  /** Any gameplay input this frame (for hints: standing still on purpose is not "stuck"). */
+  any: boolean;
 }
 
-export type TouchButton = "left" | "right" | "jump" | "interact" | "sniff" | "sprint";
+export type Device = "keyboard" | "touch" | "gamepad";
+
+export type TouchButton = "left" | "right" | "jump" | "interact" | "sniff" | "sprint" | "bark";
 
 const GAME_KEYS = new Set(["Space", "ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"]);
 
 export class InputManager {
   private down = new Set<string>();
   private latched = new Set<Action>();
-  private touch: Record<TouchButton, boolean> = { left: false, right: false, jump: false, interact: false, sniff: false, sprint: false };
+  private touch: Record<TouchButton, boolean> = { left: false, right: false, jump: false, interact: false, sniff: false, sprint: false, bark: false };
   private touchSprintToggle = false;
   private padPrev: boolean[] = [];
   private codeToAction = new Map<string, Action>();
@@ -30,13 +35,27 @@ export class InputManager {
   private capture: ((code: string) => void) | null = null;
   onPause: (() => void) | null = null;
   onAnyInput: (() => void) | null = null;
-  lastDevice: "keyboard" | "touch" | "gamepad" = "keyboard";
+  /** Fired when the player switches between keyboard, touch and gamepad (prompts re-render). */
+  onDeviceChange: ((d: Device) => void) | null = null;
+  private device: Device = "keyboard";
+
+  get lastDevice(): Device {
+    return this.device;
+  }
+  set lastDevice(d: Device) {
+    if (d === this.device) return;
+    this.device = d;
+    this.onDeviceChange?.(d);
+  }
 
   constructor(settings: Settings) {
     this.setBindings(settings);
     window.addEventListener("keydown", this.onKeyDown, { capture: true });
     window.addEventListener("keyup", this.onKeyUp, { capture: true });
     window.addEventListener("blur", () => this.releaseAll());
+    document.addEventListener("visibilitychange", () => {
+      if (document.hidden) this.releaseAll();
+    });
   }
 
   setBindings(s: Settings): void {
@@ -105,7 +124,7 @@ export class InputManager {
     }
     if (pressed && !this.touch[button]) {
       this.onAnyInput?.();
-      if (button === "jump" || button === "interact" || button === "sniff") this.latched.add(button);
+      if (button === "jump" || button === "interact" || button === "sniff" || button === "bark") this.latched.add(button);
     }
     this.touch[button] = pressed;
   }
@@ -138,6 +157,7 @@ export class InputManager {
     if (edge(0)) this.latched.add("jump");
     if (edge(2)) this.latched.add("interact");
     if (edge(3)) this.latched.add("sniff");
+    if (edge(4)) this.latched.add("bark");
     if (edge(9)) this.onPause?.();
     if (now.some((x, i) => x && !this.padPrev[i])) this.onAnyInput?.();
     this.padPrev = now;
@@ -154,7 +174,10 @@ export class InputManager {
       jumpPressed: this.latched.has("jump"),
       interactPressed: this.latched.has("interact"),
       sniffPressed: this.latched.has("sniff"),
+      barkPressed: this.latched.has("bark"),
+      any: false,
     };
+    f.any = f.left || f.right || f.jumpHeld || f.jumpPressed || f.interactPressed || f.sniffPressed || f.barkPressed;
     this.latched.clear();
     return f;
   }

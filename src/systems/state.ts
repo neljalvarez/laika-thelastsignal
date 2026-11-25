@@ -3,8 +3,10 @@
  * Everything the player has achieved lives here, and this is exactly what is saved.
  */
 import type { ItemId } from "../data/items";
+import type { TutorialStageId } from "../data/tutorial";
 
-export const STATE_VERSION = 1;
+/** v1: Phase 1. v2: Phase 2 adds the Mission 00 tutorial record and the Bark ability. */
+export const STATE_VERSION = 2;
 
 export type FlagId =
   | "checkedShipRadio"
@@ -33,7 +35,9 @@ export const ALL_FLAGS: FlagId[] = [
   "demoComplete",
 ];
 
-export type AbilityId = "sniff" | "sweep" | "thrusters";
+export type AbilityId = "sniff" | "sweep" | "thrusters" | "bark";
+
+export type TutorialStatus = "active" | "done" | "skipped";
 
 export interface GameState {
   version: number;
@@ -49,6 +53,11 @@ export interface GameState {
   checkpoint: string;
   visitedCheckpoints: string[];
   playTimeMs: number;
+  /**
+   * Mission 00. Only the first play-through is recorded here; replays use an isolated
+   * TutorialState that is never saved, so they cannot touch the campaign.
+   */
+  tutorial: { status: TutorialStatus; stage: TutorialStageId };
 }
 
 export function createNewState(): GameState {
@@ -59,12 +68,13 @@ export function createNewState(): GameState {
     flags,
     inventory: { metal: 0, electronics: 0, commsModule: 0, sample: 0, treat: 0 },
     collected: [],
-    abilities: { sniff: false, sweep: true, thrusters: false },
+    abilities: { sniff: false, sweep: true, thrusters: false, bark: true },
     sweptPanels: [],
     seen: [],
     checkpoint: "cp_ship",
     visitedCheckpoints: ["cp_ship"],
     playTimeMs: 0,
+    tutorial: { status: "active", stage: "wake" },
   };
 }
 

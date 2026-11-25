@@ -8,7 +8,8 @@ import { ITEM_ORDER, ITEMS, type ItemId } from "../data/items";
 import type { Transmission } from "../data/story";
 import { iconUrl } from "../art/icons";
 import type { Objective } from "../systems/mission";
-import { ACTION_LABELS, keyLabel, REMAPPABLE, type Action, type Settings } from "../systems/settings";
+import { ACTION_LABELS, DEFAULT_BINDINGS, keyLabel, REMAPPABLE, type Action, type Settings } from "../systems/settings";
+import type { SignalLevel } from "../systems/sniff";
 import type { InputManager, TouchButton } from "../input/InputManager";
 
 type Tone = "info" | "good" | "warn";
@@ -65,10 +66,10 @@ export class UI {
   private readTimer: number | null = null;
   private tipTimer: number | null = null;
   private regionTimer: number | null = null;
-  private hintVisible = false;
   private currentObjective: Objective | null = null;
   settings: Settings;
   onPauseButton: (() => void) | null = null;
+  onSettingsApplied: (() => void) | null = null;
   onHintButton: (() => void) | null = null;
 
   constructor(
@@ -129,6 +130,7 @@ export class UI {
     document.body.classList.toggle("reduced-motion", s.reducedMotion);
     if (this.currentObjective) this.setObjective(this.currentObjective);
     this.updateTouchVisibility();
+    this.onSettingsApplied?.();
   }
 
   // ---------------- HUD ----------------
@@ -138,28 +140,109 @@ export class UI {
     this.updateTouchVisibility(on);
   }
 
-  setObjective(o: Objective, showHint = this.hintVisible): void {
-    const changed = this.currentObjective?.stage !== o.stage;
-    this.currentObjective = o;
-    if (changed) this.hintVisible = false;
-    this.hintVisible = showHint && !changed ? true : this.hintVisible;
-    const box = this.objectiveEl;
-    box.replaceChildren();
-    const title = el("div", "title");
-    title.append(el("span", "", "▶"), el("span", "", o.title));
-    const ul = el("ul");
-    for (const s of o.steps) {
-      const li = el("li", s.done ? "done" : "");
-      li.append(el("span", "box", s.done ? "[x]" : "[ ]"), el("span", "", s.text));
-      ul.append(li);
-    }
-    box.append(title, ul);
-    if (this.hintVisible && o.hint) box.append(el("div", "hint", `Hint: ${o.hint}`));
+  private expanded = false;
+  private hintLevel = 0;
+
+  /** Label for an action on the device in use ("E", "X", "tap the action button"...). */
+  actionLabel(a: Action): string {
+    const d = this.input.lastDevice;
+    if (d === "touch") return a === "interact" ? "Action" : a === "sniff" ? "SNIFF" : a === "jump" ? "JUMP" : a === "left" || a === "right" ? "◀ ▶" : a.toUpperCase();
+    if (d === "gamepad") return ({ jump: "Ⓐ", interact: "Ⓧ", sniff: "Ⓨ", bark: "LB", sprint: "Ⓑ", left: "Stick", right: "Stick", pause: "Start" } as Record<Action, string>)[a];
+    return keyLabel(this.settings.bindings[a]);
   }
 
-  toggleHint(force?: boolean): void {
-    this.hintVisible = force ?? !this.hintVisible;
-    if (this.currentObjective) this.setObjective(this.currentObjective, this.hintVisible);
+  /**
+   * Collapsed: ONE actionable line (what + where) with the control to use.
+   * Expanded (Details): the full checklist, then optional goals in their own section.
+   */
+  setObjective(o: Objective, hintLevel = this.hintLevel): void {
+    this.currentObjective = o;
+    this.hintLevel = hintLevel;
+    const box = this.objectiveEl;
+    box.replaceChildren();
+    box.classList.toggle("expanded", this.expanded);
+    const label = el("div", "title");
+    label.append(el("span", "", o.title));
+    const toggle = button(this.expanded ? "▴ Less" : "▾ Details", () => {
+      this.expanded = !this.expanded;
+      this.setObjective(o, this.hintLevel);
+    }, "obj-toggle interactive");
+    toggle.setAttribute("aria-expanded", String(this.expanded));
+    label.append(toggle);
+    const main = el("div", "primary");
+    main.append(el("span", "", "▶ "), el("span", "", o.primary));
+    if (o.action) {
+      const a: Action = o.action === "move" ? "right" : o.action;
+      main.append(el("span", "key", this.actionLabel(a)));
+    }
+    box.append(label, main);
+    if (hintLevel >= 2 && o.hint) box.append(el("div", "hint", `Hint: ${o.hint}`));
+    if (this.expanded) {
+      const ul = el("ul");
+      for (const st of o.steps) {
+        const li = el("li", st.done ? "done" : "");
+        li.append(el("span", "box", st.done ? "[x]" : "[ ]"), el("span", "", st.text));
+        ul.append(li);
+      }
+      box.append(ul);
+      if (o.optional.length) {
+        box.append(el("div", "opt-head", "Optional"));
+        const ol = el("ul", "optional");
+        for (const st of o.optional) {
+          const li = el("li", st.done ? "done" : "");
+          li.append(el("span", "box", st.done ? "[x]" : "[ ]"), el("span", "", st.text));
+          ol.append(li);
+        }
+        box.append(ol);
+      }
+    }
+  }
+
+  setHintLevel(level: number): void {
+    if (level === this.hintLevel || !this.currentObjective) return;
+    this.setObjective(this.currentObjective, level);
+  }
+
+  showObjective(on: boolean): void {
+    this.objectiveEl.classList.toggle("hidden", !on);
+  }
+
+  // ---------------- scanner meter & captions ----------------
+
+  private signalEl: HTMLElement | null = null;
+  setSignal(level: SignalLevel | null, trendWord: "warmer" | "colder" | "steady" = "steady"): void {
+    if (!this.signalEl) {
+      this.signalEl = el("div", "signal px-panel hidden");
+      this.signalEl.setAttribute("aria-live", "polite");
+      this.root.append(this.signalEl);
+    }
+    const e = this.signalEl;
+    if (!level) {
+      e.classList.add("hidden");
+      return;
+    }
+    const bars = { none: 0, weak: 1, strong: 3, located: 4 }[level];
+    const words = { none: "No signal nearby", weak: "Weak signal", strong: "Strong signal!", located: "Found it! Dig here" }[level];
+    const tr = level === "none" || level === "located" ? "" : trendWord === "warmer" ? " ▲ closer" : trendWord === "colder" ? " ▼ further" : "";
+    const meter = el("span", "bars");
+    for (let i = 0; i < 4; i++) meter.append(el("span", i < bars ? "bar on" : "bar"));
+    e.replaceChildren(el("span", "lbl", "SCANNER"), meter, el("span", "", words + tr));
+    e.classList.remove("hidden");
+  }
+
+  private captionTimer: number | null = null;
+  caption(text: string): void {
+    if (!this.settings.captions) return;
+    let c = this.root.querySelector<HTMLElement>(".caption");
+    if (!c) {
+      c = el("div", "caption");
+      c.setAttribute("aria-live", "polite");
+      this.root.append(c);
+    }
+    c.textContent = `♪ ${text}`;
+    c.classList.remove("hidden");
+    if (this.captionTimer) window.clearTimeout(this.captionTimer);
+    this.captionTimer = window.setTimeout(() => c!.classList.add("hidden"), 1600);
   }
 
   setInventory(inv: Record<ItemId, number>): void {
@@ -188,9 +271,7 @@ export class UI {
       return;
     }
     this.promptEl.replaceChildren();
-    const usingTouch = this.input.lastDevice === "touch";
-    const usingPad = this.input.lastDevice === "gamepad";
-    const key = el("span", "key", usingTouch ? "E" : usingPad ? "X" : keyLabel(this.settings.bindings.interact));
+    const key = el("span", "key", this.actionLabel("interact"));
     this.promptEl.append(key, el("span", "", p.verb));
     if (p.detail) this.promptEl.append(el("span", "detail", `(${p.detail})`));
     this.promptEl.classList.remove("hidden");
@@ -383,6 +464,7 @@ export class UI {
     onNew: () => void;
     onSettings: () => void;
     onCredits: () => void;
+    onReplayTutorial?: () => void;
     dedication: string;
   }): void {
     const block = el("div", "title-block");
@@ -396,6 +478,7 @@ export class UI {
       button("Settings", opts.onSettings, "px-btn secondary"),
       button("About & Credits", opts.onCredits, "px-btn secondary"),
     );
+    if (opts.onReplayTutorial) buttons.insertBefore(button("Replay Tutorial", opts.onReplayTutorial, "px-btn secondary"), buttons.children[2] ?? null);
     block.append(logo, tagline, buttons);
     if (opts.notice) block.append(el("div", "toast px-panel warn", opts.notice));
     const wrap = el("div");
@@ -423,27 +506,48 @@ export class UI {
   showPause(opts: {
     onResume: () => void;
     onSettings: () => void;
+    onControls: () => void;
     onCheckpoint: () => void;
     onRestart: () => void;
     onMenu: () => void;
+    tutorial: "first" | "replay" | null;
+    onSkipTutorial?: () => void;
+    onRestartTutorial?: () => void;
+    onReplayTutorial?: () => void;
+    onEndReplay?: () => void;
   }): void {
     const card = el("div", "menu-card px-panel");
-    card.append(el("h2", "", "Paused"));
-    card.append(
-      button("▶ Resume", opts.onResume),
-      button("Settings", opts.onSettings, "px-btn secondary"),
-      button("Return to last checkpoint", opts.onCheckpoint, "px-btn secondary"),
-      button("Restart demo", opts.onRestart, "px-btn secondary"),
-      button("Save & quit to title", opts.onMenu, "px-btn secondary"),
-    );
+    card.append(el("h2", "", opts.tutorial ? "Paused · Mission 00" : "Paused"));
+    card.append(button("▶ Resume", opts.onResume), button("Controls", opts.onControls, "px-btn secondary"), button("Settings", opts.onSettings, "px-btn secondary"));
+    if (opts.tutorial === "first") {
+      card.append(button("Restart tutorial", opts.onRestartTutorial!, "px-btn secondary"), button("Skip tutorial", opts.onSkipTutorial!, "px-btn secondary"));
+    } else if (opts.tutorial === "replay") {
+      card.append(button("Restart tutorial", opts.onRestartTutorial!, "px-btn secondary"), button("End tutorial replay", opts.onEndReplay!, "px-btn secondary"));
+    } else {
+      card.append(button("Return to last checkpoint", opts.onCheckpoint, "px-btn secondary"));
+      if (opts.onReplayTutorial) card.append(button("Replay tutorial (Mission 00)", opts.onReplayTutorial, "px-btn secondary"));
+    }
+    card.append(button("Restart demo", opts.onRestart, "px-btn secondary"), button("Save & quit to title", opts.onMenu, "px-btn secondary"));
+    this.openScreen(card);
+  }
+
+  /** Controls reference, always reflecting the current bindings. */
+  showControls(onBack: () => void): void {
     const b = this.settings.bindings;
-    card.append(
-      el(
-        "p",
-        "",
-        `Move ${keyLabel(b.left)}/${keyLabel(b.right)} or ←/→ · Jump ${keyLabel(b.jump)} · Interact ${keyLabel(b.interact)} · Sniff ${keyLabel(b.sniff)} · Sprint ${keyLabel(b.sprint)} · Pause Esc`,
-      ),
-    );
+    const card = el("div", "menu-card px-panel");
+    card.style.maxWidth = "min(94%, 560px)";
+    card.append(el("h2", "", "Controls"));
+    const grid = el("div", "settings-grid");
+    const row = (what: string, kb: string, touch: string, pad: string) => grid.append(el("span", "", what), el("span", "", `${kb} · ${touch} · ${pad}`));
+    grid.append(el("h3", "", "Keyboard · Touch · Gamepad"));
+    row("Move", `${keyLabel(b.left)}/${keyLabel(b.right)} or ←/→`, "◀ ▶ pad", "Stick / D-pad");
+    row("Jump (hold = higher)", keyLabel(b.jump), "JUMP", "Ⓐ");
+    row("Interact / Dig / Repair", keyLabel(b.interact), "Action button", "Ⓧ");
+    row("Sniff (scanner)", keyLabel(b.sniff), "SNIFF", "Ⓨ");
+    row("Sprint", keyLabel(b.sprint), "RUN (toggle)", "Ⓑ / RB");
+    row("Bark (optional)", keyLabel(b.bark), "Action button near sensors", "LB");
+    row("Pause", "Esc / P", "II", "Start");
+    card.append(grid, el("p", "", "Change keys in Settings → Controls."), button("Back", onBack));
     this.openScreen(card);
   }
 
@@ -475,7 +579,7 @@ export class UI {
       });
       grid.append(lab, input);
     };
-    const toggle = (label: string, key: "reducedMotion" | "hints" | "assistJumps", help?: string) => {
+    const toggle = (label: string, key: "reducedMotion" | "hints" | "assistJumps" | "captions", help?: string) => {
       const id = `set-${key}`;
       const lab = el("label", "", label);
       lab.htmlFor = id;
@@ -525,7 +629,8 @@ export class UI {
       ["instant", "Instant"],
     ]);
     toggle("Reduced motion", "reducedMotion", "No camera pans or shakes");
-    toggle("Hints", "hints", "Show a hint after a while");
+    toggle("Hints", "hints", "Offer help when you seem stuck (the ? button always works)");
+    toggle("Sound captions", "captions", "Show short text for important sounds");
     toggle("Easy jumps", "assistJumps", "Higher jumps, glide while holding Jump");
     select("Touch controls", "touchControls", [
       ["auto", "Automatic"],
@@ -559,7 +664,7 @@ export class UI {
       grid.append(lab, kb);
     }
     card.append(grid);
-    card.append(el("p", "", "Arrow keys always move, ↑/W also jump, Enter also interacts. Gamepads: A jump, X interact, Y sniff, B sprint, Start pause."));
+    card.append(el("p", "", "Arrow keys always move, ↑/W also jump, Enter also interacts. Gamepads: A jump, X interact, Y sniff, LB bark, B sprint, Start pause."));
     const row = el("div", "row-buttons");
     row.append(
       button("Back", () => {
@@ -569,7 +674,7 @@ export class UI {
       button(
         "Reset controls",
         () => {
-          const next = { ...s, bindings: { left: "KeyA", right: "KeyD", jump: "Space", interact: "KeyE", sniff: "KeyF", sprint: "ShiftLeft", pause: "Escape" } };
+          const next = { ...s, bindings: { ...DEFAULT_BINDINGS } };
           commit(next);
           for (const [a, b] of keyButtons) b.textContent = keyLabel(next.bindings[a]);
         },
@@ -635,12 +740,63 @@ export class UI {
       this.touchEl.append(b);
       return b;
     };
-    mk("t-left", "◀", "left", "Move left");
-    mk("t-right", "▶", "right", "Move right");
+    // One D-pad for both directions: slide your thumb between ◀ and ▶ without lifting it.
+    const pad = el("div", "t-dpad");
+    pad.setAttribute("role", "group");
+    pad.setAttribute("aria-label", "Move left or right");
+    const leftHalf = el("span", "half", "◀");
+    const rightHalf = el("span", "half", "▶");
+    pad.append(leftHalf, rightHalf);
+    let padPointer: number | null = null;
+    const setDir = (clientX: number | null) => {
+      const r = pad.getBoundingClientRect();
+      const dir = clientX === null ? 0 : clientX < r.left + r.width / 2 ? -1 : 1;
+      this.input.setTouch("left", dir < 0);
+      this.input.setTouch("right", dir > 0);
+      leftHalf.classList.toggle("pressed", dir < 0);
+      rightHalf.classList.toggle("pressed", dir > 0);
+    };
+    pad.addEventListener("pointerdown", (e) => {
+      e.preventDefault();
+      padPointer = e.pointerId;
+      try {
+        pad.setPointerCapture(e.pointerId);
+      } catch {
+        /* synthetic pointer */
+      }
+      setDir(e.clientX);
+    });
+    pad.addEventListener("pointermove", (e) => {
+      if (e.pointerId === padPointer) setDir(e.clientX);
+    });
+    const release = (e: PointerEvent) => {
+      if (e.pointerId !== padPointer) return;
+      padPointer = null;
+      setDir(null);
+    };
+    pad.addEventListener("pointerup", release);
+    pad.addEventListener("pointercancel", release);
+    pad.addEventListener("lostpointercapture", release as EventListener);
+    pad.addEventListener("contextmenu", (e) => e.preventDefault());
+    this.touchEl.append(pad);
+    this.clearTouchVisuals = () => {
+      padPointer = null;
+      leftHalf.classList.remove("pressed");
+      rightHalf.classList.remove("pressed");
+      this.touchEl.querySelectorAll(".pressed").forEach((x) => x.classList.remove("pressed"));
+    };
     mk("t-sprint", "RUN", "sprint", "Toggle sprint");
     mk("t-jump", "JUMP", "jump", "Jump");
     this.actBtn = mk("t-act", "E", "interact", "Interact");
     this.sniffBtn = mk("t-sniff", "SNIFF", "sniff", "Sniff");
+  }
+
+  private clearTouchVisuals: () => void = () => undefined;
+
+  /** Releases every touch control (pause, blur, device change): nothing can stay stuck down. */
+  clearTouch(): void {
+    this.clearTouchVisuals();
+    this.input.releaseAll();
   }
 
   setSniffAvailable(on: boolean): void {

@@ -23,9 +23,14 @@ export type WorldEvent =
   | "stationDoorOpen"
   | "thrusters"
   | "demoComplete"
-  | "sniffUnlocked";
+  | "sniffUnlocked"
+  | "practiceConsole"
+  | "practiceCollected"
+  | "practiceRepaired"
+  | "echoSensor"
+  | "roverBeep";
 
-export type AnimName = "interact" | "dig" | "sweep" | "celebrate";
+export type AnimName = "interact" | "dig" | "sweep" | "celebrate" | "repair" | "bark";
 
 export type Effect =
   | { type: "toast"; text: string; tone?: "info" | "good" | "warn" }
@@ -117,9 +122,14 @@ export function getInteraction(o: WorldObject, s: GameState, ctx: InteractionCon
       return { verb: "Open door", detail: s.flags.commsOnline ? undefined : "Sealed" };
     case "beacon":
       return { verb: s.flags.demoComplete ? "Replay the signal" : "Trace the signal" };
+    case "echoSensor":
+      return { verb: "Bark", detail: "Say hello to the sensor" };
     case "checkpoint":
     case "secret":
-      return null;
+    case "practiceConsole":
+    case "practiceBuried":
+    case "trainingMachine":
+      return null; // practice objects are handled by systems/tutorial.ts
   }
 }
 
@@ -185,7 +195,7 @@ export function performInteraction(o: WorldObject, s: GameState, ctx: Interactio
       if (!s.flags.solarRepaired && canAfford(s, RECIPES.solarRepair)) {
         spend(s, RECIPES.solarRepair);
         s.flags.solarRepaired = true;
-        fx.push({ type: "anim", name: "interact" }, { type: "spend", cost: RECIPES.solarRepair });
+        fx.push({ type: "anim", name: "repair" }, { type: "spend", cost: RECIPES.solarRepair });
         fx.push({ type: "world", event: "solarRepaired" }, { type: "sound", name: "repair" });
         fx.push({
           type: "toast",
@@ -235,11 +245,14 @@ export function performInteraction(o: WorldObject, s: GameState, ctx: Interactio
       fx.push({ type: "anim", name: "interact" });
       if (!s.flags.inspectedReceiver) {
         s.flags.inspectedReceiver = true;
-        fx.push({ type: "sound", name: "static" }, { type: "transmission", id: "receiverInspect" }, { type: "save" });
+        // Players who learned to sniff in Mission 00 get a line that doesn't re-teach it.
+        const knew = !fx.some((e) => e.type === "world" && e.event === "sniffUnlocked");
+        fx.push({ type: "sound", name: "static" }, { type: "transmission", id: knew ? "receiverInspectKnown" : "receiverInspect" }, { type: "save" });
       } else if (!s.flags.moduleInstalled) {
         if (count(s, "commsModule") > 0) {
           s.inventory.commsModule -= 1;
           s.flags.moduleInstalled = true;
+          fx.push({ type: "anim", name: "repair" });
           fx.push({ type: "spend", cost: { commsModule: 1 } }, { type: "world", event: "moduleInstalled" }, { type: "sound", name: "repair" });
           fx.push({
             type: "toast",
@@ -271,6 +284,7 @@ export function performInteraction(o: WorldObject, s: GameState, ctx: Interactio
       } else if (!s.abilities.thrusters && canAfford(s, RECIPES.thrusterBoots)) {
         spend(s, RECIPES.thrusterBoots);
         s.abilities.thrusters = true;
+        fx.push({ type: "anim", name: "repair" });
         fx.push({ type: "spend", cost: RECIPES.thrusterBoots }, { type: "world", event: "thrusters" }, { type: "anim", name: "celebrate" });
         fx.push({ type: "toast", text: "THRUSTER BOOTS! Press JUMP again in mid-air.", tone: "good" }, { type: "save" });
       } else if (!s.abilities.thrusters) {
@@ -315,9 +329,35 @@ export function performInteraction(o: WorldObject, s: GameState, ctx: Interactio
       }
       break;
 
+    case "echoSensor":
+      fx.push(...barkEffects(o, s));
+      break;
     case "checkpoint":
     case "secret":
+    case "practiceConsole":
+    case "practiceBuried":
+    case "trainingMachine":
       break;
+  }
+  return fx;
+}
+
+/**
+ * Bark: a lightweight, optional dog ability. Barking near the echo sensor makes it answer (and
+ * teaches a sound fact the first time); near the rover, R-2's camera mast perks up. Anywhere
+ * else it is just Laika being a happy dog. Never required for the mission.
+ */
+export function barkEffects(near: WorldObject | null, s: GameState): Effect[] {
+  const fx: Effect[] = [{ type: "anim", name: "bark" }, { type: "sound", name: "woof" }];
+  if (near?.kind === "echoSensor") {
+    fx.push({ type: "world", event: "echoSensor", objectId: near.id });
+    if (!s.seen.includes(near.id)) {
+      s.seen.push(near.id);
+      if (near.fact) fx.push({ type: "read", title: "ECHO SENSOR", lines: ["Bark detected! Playing it back...", near.fact] });
+      fx.push({ type: "save" });
+    }
+  } else if (near?.kind === "rover") {
+    fx.push({ type: "world", event: "roverBeep", objectId: near.id });
   }
   return fx;
 }

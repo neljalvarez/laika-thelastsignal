@@ -23,6 +23,8 @@ export interface MoveTuning {
   turnAccel: number;
   airAccel: number;
   airDecel: number;
+  /** Reversing direction in mid-air (quick, but softer than on the ground). */
+  airTurnAccel: number;
   gravity: number;
   fallGravityMult: number;
   maxFall: number;
@@ -34,25 +36,39 @@ export interface MoveTuning {
   bufferMs: number;
   /** Maximum fall speed while gliding (assist mode, jump held). 0 = no glide. */
   glideMaxFall: number;
+  /** Near the top of a held jump (|vy| below this), gravity is reduced: a short Martian float. */
+  apexHangSpeed: number;
+  apexHangMult: number;
 }
 
+/**
+ * Phase 2 tuning (see PHASE_2_HANDOFF.md for the reasoning):
+ * - faster ground acceleration/deceleration: Laika starts and stops crisply instead of sliding;
+ * - a dedicated mid-air turn rate: direction changes in the air feel controllable;
+ * - a short "apex hang" at the top of a held jump: the Mars float, without a floaty rise;
+ * - heavier falling: landings feel decisive. The full jump height is unchanged (~3.5 tiles)
+ *   so no mission gate or level route changes.
+ */
 export const TUNING: MoveTuning = {
-  walkSpeed: 96,
-  sprintSpeed: 150,
-  groundAccel: 1000,
-  groundDecel: 1300,
-  turnAccel: 1900,
-  airAccel: 760,
-  airDecel: 420,
+  walkSpeed: 100,
+  sprintSpeed: 156,
+  groundAccel: 1500,
+  groundDecel: 1900,
+  turnAccel: 2600,
+  airAccel: 950,
+  airDecel: 520,
+  airTurnAccel: 1500,
   gravity: 640,
-  fallGravityMult: 1.35,
-  maxFall: 380,
+  fallGravityMult: 1.5,
+  maxFall: 400,
   jumpVelocity: 268,
   jumpCutMult: 0.45,
   doubleJumpVelocity: 235,
   coyoteMs: 110,
   bufferMs: 140,
   glideMaxFall: 0,
+  apexHangSpeed: 45,
+  apexHangMult: 0.55,
 };
 
 /** "Easy jumps" assist: higher jumps, longer grace periods and a gentle glide while jump is held. */
@@ -62,7 +78,7 @@ export const ASSIST_TUNING: MoveTuning = {
   coyoteMs: 220,
   bufferMs: 260,
   glideMaxFall: 90,
-  airAccel: 900,
+  airAccel: 1100,
 };
 
 /** Interaction and sniff ranges in pixels. */

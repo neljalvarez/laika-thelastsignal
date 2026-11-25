@@ -63,6 +63,7 @@ export class TitleScene extends Phaser.Scene {
         } else this.newGame();
       },
       onSettings: () => ui.showSettings(svc().settings, (s) => updateSettings(s), () => this.showMenu()),
+      onReplayTutorial: this.replayAvailable() ? () => this.replayTutorial() : undefined,
       onCredits: () =>
         ui.showInfo(
           "About & Credits",
@@ -85,6 +86,17 @@ export class TitleScene extends Phaser.Scene {
     this.notice = "";
     this.cameras.main.fadeOut(350, 0, 0, 0);
     this.cameras.main.once(Phaser.Cameras.Scene2D.Events.FADE_OUT_COMPLETE, () => this.scene.start("game", data));
+  }
+
+  /** Replay Mission 00 from an existing campaign (isolated practice; the campaign is untouched). */
+  private replayAvailable(): boolean {
+    const load = loadGame(svc().store);
+    return load.status === "ok" && load.state.tutorial.status !== "active";
+  }
+
+  private replayTutorial(): void {
+    const load = loadGame(svc().store);
+    if (load.status === "ok") this.start({ state: load.state, isNew: false, replayTutorial: true });
   }
 
   private newGame(): void {

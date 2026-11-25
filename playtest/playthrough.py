@@ -152,4 +152,5 @@ async def main():
         open(OUT+'save_complete.json','w').write(ls or '')
         print('errs', errs[:10]); print('log', bot.log)
         await b.close()
-asyncio.run(main())
+if __name__ == "__main__":
+    asyncio.run(main())

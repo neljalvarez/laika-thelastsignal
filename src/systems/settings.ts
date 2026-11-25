@@ -2,8 +2,8 @@
 import { SETTINGS_KEY } from "../config/constants";
 import type { KeyValueStore } from "./save";
 
-export type Action = "left" | "right" | "jump" | "interact" | "sniff" | "sprint" | "pause";
-export const REMAPPABLE: Action[] = ["left", "right", "jump", "interact", "sniff", "sprint"];
+export type Action = "left" | "right" | "jump" | "interact" | "sniff" | "sprint" | "bark" | "pause";
+export const REMAPPABLE: Action[] = ["left", "right", "jump", "interact", "sniff", "sprint", "bark"];
 
 export const ACTION_LABELS: Record<Action, string> = {
   left: "Move left",
@@ -12,6 +12,7 @@ export const ACTION_LABELS: Record<Action, string> = {
   interact: "Interact / Dig",
   sniff: "Sniff (scanner)",
   sprint: "Sprint",
+  bark: "Bark (optional)",
   pause: "Pause",
 };
 
@@ -23,6 +24,7 @@ export const DEFAULT_BINDINGS: Record<Action, string> = {
   interact: "KeyE",
   sniff: "KeyF",
   sprint: "ShiftLeft",
+  bark: "KeyB",
   pause: "Escape",
 };
 
@@ -33,6 +35,7 @@ export const ALT_BINDINGS: Record<Action, string[]> = {
   interact: ["Enter"],
   sniff: [],
   sprint: ["ShiftRight"],
+  bark: [],
   pause: ["KeyP"],
 };
 
@@ -48,6 +51,8 @@ export interface Settings {
   assistJumps: boolean;
   touchControls: "auto" | "on" | "off";
   textSpeed: "normal" | "slow" | "instant";
+  /** Short on-screen captions for important sounds (bark, scanner, machines). */
+  captions: boolean;
   bindings: Record<Action, string>;
 }
 
@@ -63,6 +68,7 @@ export function defaultSettings(prefersReducedMotion = false): Settings {
     assistJumps: false,
     touchControls: "auto",
     textSpeed: "normal",
+    captions: true,
     bindings: { ...DEFAULT_BINDINGS },
   };
 }
@@ -91,6 +97,7 @@ export function parseSettings(text: string | null, prefersReducedMotion = false)
     assistJumps: typeof raw.assistJumps === "boolean" ? raw.assistJumps : d.assistJumps,
     touchControls: ["auto", "on", "off"].includes(raw.touchControls as string) ? (raw.touchControls as Settings["touchControls"]) : d.touchControls,
     textSpeed: ["normal", "slow", "instant"].includes(raw.textSpeed as string) ? (raw.textSpeed as Settings["textSpeed"]) : d.textSpeed,
+    captions: typeof raw.captions === "boolean" ? raw.captions : d.captions,
     bindings: { ...DEFAULT_BINDINGS },
   };
   if (typeof raw.bindings === "object" && raw.bindings !== null) {
