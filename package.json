@@ -1,0 +1,26 @@
+{
+  "name": "laika-the-last-signal",
+  "private": true,
+  "version": "0.1.0",
+  "description": "LAIKA: THE LAST SIGNAL - a 2D pixel-art Mars adventure. Phase 1 vertical slice.",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "engines": {
+    "node": ">=18.18"
+  },
+  "dependencies": {
+    "@fontsource/pixelify-sans": "^5.3.0",
+    "phaser": "^3.90.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.3",
+    "vite": "^7.3.8",
+    "vitest": "^3.2.7"
+  }
+}
