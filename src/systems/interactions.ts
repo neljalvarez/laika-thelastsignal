@@ -12,49 +12,9 @@ import type { WorldObject } from "../data/world";
 import { canAfford, collectOnce, count, spend } from "./inventory";
 import { allPanelsClean, isPowered, SOLAR_PANELS, type GameState } from "./state";
 
-export type WorldEvent =
-  | "hatchOpen"
-  | "solarRepaired"
-  | "panelClean"
-  | "powerOn"
-  | "moduleInstalled"
-  | "commsOnline"
-  | "bridgeExtend"
-  | "stationDoorOpen"
-  | "thrusters"
-  | "demoComplete"
-  | "sniffUnlocked"
-  | "practiceConsole"
-  | "practiceCollected"
-  | "practiceRepaired"
-  | "echoSensor"
-  | "roverBeep";
-
-export type AnimName = "interact" | "dig" | "sweep" | "celebrate" | "repair" | "bark";
-
-export type Effect =
-  | { type: "toast"; text: string; tone?: "info" | "good" | "warn" }
-  | { type: "item"; item: ItemId; objectId: string; amount: number }
-  | { type: "spend"; cost: Cost }
-  | { type: "transmission"; id: string }
-  | { type: "tip"; key: keyof typeof TIPS }
-  | { type: "anim"; name: AnimName }
-  | { type: "sound"; name: string }
-  | { type: "world"; event: WorldEvent; objectId?: string }
-  | { type: "focus"; objectId: string }
-  | { type: "read"; title: string; lines: string[] }
-  | { type: "save" };
-
-export interface Interaction {
-  verb: string;
-  /** Extra line: a cost or the reason something cannot be done yet. */
-  detail?: string;
-}
-
-export interface InteractionContext {
-  /** Buried spots currently revealed by the scanner (runtime only, not saved). */
-  revealed: ReadonlySet<string>;
-}
+export type { AnimName, Effect, Interaction, InteractionContext, WorldEvent } from "./effects";
+import type { Effect, Interaction, InteractionContext } from "./effects";
+import { acousticBark, getRegionInteraction, performRegionInteraction } from "./puzzles";
 
 export function costText(cost: Cost): string {
   return (Object.keys(cost) as ItemId[]).map((k) => `${cost[k]} ${ITEMS[k].short}`).join(" + ");
@@ -99,6 +59,8 @@ export function getInteraction(o: WorldObject, s: GameState, ctx: InteractionCon
       if (!s.flags.commsOnline) {
         return powered ? { verb: "Tune receiver" } : { verb: "Inspect receiver", detail: "No power" };
       }
+      // Phase 3: Mission 02 ends here, when Laika brings the relay cell up from the depths.
+      if (!s.flags.relayAnalyzed && s.inventory.relayCell > 0) return { verb: "Analyse the relay cell" };
       return { verb: "Replay signal" };
     case "workstation":
       if (!powered) return { verb: "Inspect workstation", detail: "No power" };
@@ -121,6 +83,7 @@ export function getInteraction(o: WorldObject, s: GameState, ctx: InteractionCon
       if (s.flags.stationDoorOpen) return null;
       return { verb: "Open door", detail: s.flags.commsOnline ? undefined : "Sealed" };
     case "beacon":
+      if (s.flags.demoComplete && !s.flags.m2Briefed) return { verb: "Check the relay logs" };
       return { verb: s.flags.demoComplete ? "Replay the signal" : "Trace the signal" };
     case "echoSensor":
       return { verb: "Bark", detail: "Say hello to the sensor" };
@@ -130,6 +93,8 @@ export function getInteraction(o: WorldObject, s: GameState, ctx: InteractionCon
     case "practiceBuried":
     case "trainingMachine":
       return null; // practice objects are handled by systems/tutorial.ts
+    default:
+      return getRegionInteraction(o, s, ctx); // Phase 3 kinds (systems/puzzles.ts)
   }
 }
 
@@ -182,6 +147,8 @@ export function performInteraction(o: WorldObject, s: GameState, ctx: Interactio
       else fx.push({ type: "anim", name: "interact" });
       fx.push({ type: "item", item, objectId: o.id, amount: 1 });
       if (o.fact) fx.push({ type: "read", title: o.label ?? ITEMS[item].name, lines: [o.fact] });
+      else if (o.text) fx.push({ type: "read", title: o.text[0], lines: o.text.slice(1) });
+      if (item === "coupling") fx.push({ type: "toast", text: "The power coupling! Take it to the junction below.", tone: "good" });
       if (item === "commsModule") {
         fx.push({ type: "anim", name: "celebrate" }, { type: "toast", text: "Found the comms module! Take it to the receiver.", tone: "good" });
       }
@@ -272,6 +239,9 @@ export function performInteraction(o: WorldObject, s: GameState, ctx: Interactio
         } else {
           fx.push({ type: "sound", name: "error" }, { type: "toast", text: "No power. Repair and clean the solar array.", tone: "warn" });
         }
+      } else if (!s.flags.relayAnalyzed && s.inventory.relayCell > 0) {
+        s.flags.relayAnalyzed = true;
+        fx.push({ type: "anim", name: "repair" }, { type: "transmission", id: "relayAnalysis" }, { type: "world", event: "mission02Complete" }, { type: "save" });
       } else {
         fx.push({ type: "transmission", id: "firstSignal" });
       }
@@ -322,6 +292,11 @@ export function performInteraction(o: WorldObject, s: GameState, ctx: Interactio
       break;
 
     case "beacon":
+      if (s.flags.demoComplete && !s.flags.m2Briefed) {
+        s.flags.m2Briefed = true;
+        fx.push({ type: "anim", name: "interact" }, { type: "transmission", id: "relayLogs" }, { type: "world", event: "freightUnlocked" }, { type: "save" });
+        break;
+      }
       fx.push({ type: "anim", name: "interact" }, { type: "transmission", id: "finalSignal" });
       if (!s.flags.demoComplete) {
         s.flags.demoComplete = true;
@@ -338,6 +313,8 @@ export function performInteraction(o: WorldObject, s: GameState, ctx: Interactio
     case "practiceBuried":
     case "trainingMachine":
       break;
+    default:
+      return performRegionInteraction(o, s, ctx);
   }
   return fx;
 }
@@ -358,6 +335,8 @@ export function barkEffects(near: WorldObject | null, s: GameState): Effect[] {
     }
   } else if (near?.kind === "rover") {
     fx.push({ type: "world", event: "roverBeep", objectId: near.id });
+  } else if (near?.kind === "acousticSensor") {
+    return acousticBark(near, s);
   }
   return fx;
 }

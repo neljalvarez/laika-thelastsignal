@@ -6,9 +6,11 @@
  */
 import { SAVE_BACKUP_KEY, SAVE_KEY } from "../config/constants";
 import { ITEM_ORDER, RECIPES, type ItemId } from "../data/items";
+import { ALL_OBJECTS, MAP_IDS, MAPS, mapOfObject, type MapId } from "../data/regions/registry";
 import { OBJECTS } from "../data/world";
 import { STAGE_ORDER, type TutorialStageId } from "../data/tutorial";
-import { ALL_FLAGS, createNewState, SOLAR_PANELS, STATE_VERSION, type AbilityId, type GameState } from "./state";
+import { sectionAt } from "./regions";
+import { ALL_FLAGS, createNewState, RELAY_START_AIM, SOLAR_PANELS, STATE_VERSION, type AbilityId, type FlagId, type GameState } from "./state";
 
 export interface KeyValueStore {
   getItem(key: string): string | null;
@@ -36,8 +38,10 @@ export type LoadResult =
 const isObj = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v);
 const strArray = (v: unknown): string[] => (Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : []);
 
-const CHECKPOINT_IDS = new Set(OBJECTS.filter((o) => o.kind === "checkpoint").map((o) => o.id));
-const OBJECT_IDS = new Set(OBJECTS.map((o) => o.id));
+const CHECKPOINT_IDS = new Set(ALL_OBJECTS.filter((o) => o.kind === "checkpoint").map((o) => o.id));
+const OBJECT_IDS = new Set(ALL_OBJECTS.map((o) => o.id));
+const SECTION_IDS = new Set(MAP_IDS.flatMap((m) => MAPS[m].sections.map((x) => x.id)));
+const LANDMARK_IDS = new Set(MAP_IDS.flatMap((m) => MAPS[m].landmarks.map((x) => x.id)));
 
 /**
  * Upgrades older save formats step by step.
@@ -52,6 +56,15 @@ export function migrate(raw: Record<string, unknown>): Record<string, unknown> |
     const abilities = isObj(data.abilities) ? { ...data.abilities, bark: true } : { bark: true };
     data = { ...data, version: 2, abilities, tutorial: { status: "skipped", stage: "done" } };
     v = 2;
+  }
+  // v2 -> v3 (Phase 3): new flags, items and the Headlamp default to "not yet"; the world map is
+  // back-filled from the checkpoints already visited (repairState); relays start in their default
+  // directions. Nothing a Phase 1-2 player achieved changes, and a finished Mission 01 leads
+  // straight into Mission 02.
+  if (v === 2) {
+    const abilities = isObj(data.abilities) ? { ...data.abilities, headlamp: false } : { headlamp: false };
+    data = { ...data, version: 3, abilities, discovered: { maps: ["surface"], sections: [], landmarks: [] }, puzzles: { relayAim: { ...RELAY_START_AIM } } };
+    v = 3;
   }
   if (v === STATE_VERSION) return data;
   return null; // unknown / future version: incompatible
@@ -78,9 +91,22 @@ export function sanitize(raw: Record<string, unknown>): GameState {
   s.abilities.sweep = true;
   s.sweptPanels = [...new Set(strArray(raw.sweptPanels).filter((p) => SOLAR_PANELS.includes(p)))];
   s.seen = [...new Set(strArray(raw.seen))].slice(0, 200);
-  const cp = typeof raw.checkpoint === "string" ? raw.checkpoint : "";
-  s.checkpoint = CHECKPOINT_IDS.has(cp) ? cp : "cp_ship";
   s.visitedCheckpoints = [...new Set(["cp_ship", ...strArray(raw.visitedCheckpoints).filter((c) => CHECKPOINT_IDS.has(c))])];
+  // An unknown checkpoint (renamed, hand-edited, from a future build) falls back to the last valid
+  // one Laika visited instead of throwing her back to the ship.
+  const cp = typeof raw.checkpoint === "string" ? raw.checkpoint : "";
+  s.checkpoint = CHECKPOINT_IDS.has(cp) ? cp : (s.visitedCheckpoints[s.visitedCheckpoints.length - 1] ?? "cp_ship");
+  const disc = isObj(raw.discovered) ? raw.discovered : {};
+  s.discovered = {
+    maps: [...new Set(["surface", ...strArray(disc.maps).filter((m) => (MAP_IDS as string[]).includes(m))])],
+    sections: [...new Set(strArray(disc.sections).filter((x) => SECTION_IDS.has(x)))],
+    landmarks: [...new Set(strArray(disc.landmarks).filter((x) => LANDMARK_IDS.has(x)))],
+  };
+  const pz = isObj(raw.puzzles) && isObj(raw.puzzles.relayAim) ? raw.puzzles.relayAim : {};
+  for (const id of Object.keys(RELAY_START_AIM)) {
+    const v = pz[id];
+    s.puzzles.relayAim[id] = typeof v === "number" && Number.isInteger(v) && v >= 0 && v <= 4 ? v : RELAY_START_AIM[id];
+  }
   if (typeof raw.playTimeMs === "number" && Number.isFinite(raw.playTimeMs)) s.playTimeMs = Math.max(0, raw.playTimeMs);
   // Tutorial record: anything unreadable recovers to "skipped" so a broken record can never trap
   // the player in Mission 00 or lock them out of the campaign.
@@ -92,10 +118,13 @@ export function sanitize(raw: Record<string, unknown>): GameState {
   return s;
 }
 
-/** How many of an item exist in the world and have not been collected yet. */
+/** How many of an item exist on the SURFACE map and have not been collected yet (the solar repair happens there). */
 export function uncollected(s: GameState, item: ItemId): number {
   return OBJECTS.filter((o) => o.item === item && !s.collected.includes(o.id)).length;
 }
+
+/** Relay dish targets, from the relay objects' data. */
+const RELAY_TARGET: Record<string, number> = Object.fromEntries(ALL_OBJECTS.filter((o) => o.kind === "relay").map((o) => [o.id, o.aim ?? 0]));
 
 /**
  * Enforces invariants that keep the mission completable. Returns a list of what was fixed.
@@ -142,6 +171,87 @@ export function repairState(s: GameState): string[] {
   if (s.inventory.commsModule > 1) {
     s.inventory.commsModule = 1;
     fixed.push("capped comms module");
+  }
+
+  // ---- Phase 3: Missions 02-03. Later milestones imply earlier ones. ----
+  // Being saved in a map implies being allowed there (protects hand-edited or interrupted saves).
+  const where: MapId = mapOfObject(s.checkpoint) ?? "surface";
+  if (where === "depths") imply(true, "depthsReached", "saved in the depths");
+  if (where === "ridge") imply(true, "ridgeReached", "saved on the ridge");
+  imply(f.ridgeCableOpen, "signalTraced", "cable car implies signal traced");
+  imply(f.signalTraced, "towerReached", "trace implies tower reached");
+  imply(f.towerReached, "relayNetworkOnline", "tower implies relay network online");
+  if (f.relayNetworkOnline) {
+    for (const k of ["relayASwept", "cellInstalled", "relayCFound"] as FlagId[]) imply(true, k as keyof typeof f, "network implies its parts");
+    for (const [id, aim] of Object.entries(RELAY_TARGET)) {
+      if (s.puzzles.relayAim[id] !== aim) {
+        s.puzzles.relayAim[id] = aim;
+        fixed.push(`aligned ${id}`);
+      }
+    }
+  }
+  imply(f.relayASwept || f.cellInstalled || f.relayCFound || f.ridgeBridgeOut, "ridgeReached", "ridge progress implies ridge reached");
+  imply(f.ridgeReached, "relayAnalyzed", "ridge reached implies relay analysed");
+  imply(f.relayAnalyzed, "iceChamberReached", "relay analysed implies ice chamber");
+  imply(f.depthsLiftOpen, "circuitRestored", "lift implies circuit");
+  imply(f.iceChamberReached, "circuitRestored", "ice chamber implies circuit");
+  imply(f.circuitRestored, "junctionInspected", "circuit implies junction inspected");
+  imply(f.junctionInspected, "passageOpen", "junction implies passage open");
+  imply(f.passageOpen || f.lockerOpened, "depthsReached", "depths progress implies depths reached");
+  if (f.passageOpen && !s.abilities.headlamp) {
+    s.abilities.headlamp = true;
+    fixed.push("headlamp unlocked");
+  }
+  imply(f.depthsReached, "m2Briefed", "depths reached implies briefing");
+  imply(f.m2Briefed, "demoComplete", "Mission 02 implies Mission 01 complete");
+  // Re-run the Mission 01 chain now that Phase 3 flags may have implied demoComplete.
+  imply(f.demoComplete, "reachedStation", "demo complete implies station reached");
+  imply(f.reachedStation, "stationDoorOpen", "station reached implies door open");
+  imply(f.stationDoorOpen, "commsOnline", "door open implies comms online");
+  imply(f.commsOnline, "moduleInstalled", "comms online implies module installed");
+  imply(f.commsOnline, "solarRepaired", "comms online implies solar repaired");
+  imply(f.moduleInstalled || f.solarRepaired, "inspectedReceiver", "repairs imply receiver inspected");
+  imply(f.inspectedReceiver, "hatchOpen", "outpost visited implies hatch open");
+  if (f.commsOnline && s.sweptPanels.length < SOLAR_PANELS.length) {
+    s.sweptPanels = [...SOLAR_PANELS];
+    fixed.push("comms online implies clean panels");
+  }
+  if (f.inspectedReceiver && !s.abilities.sniff) {
+    s.abilities.sniff = true;
+    fixed.push("sniff unlocked");
+  }
+  for (const m of MAP_IDS) {
+    const been = m === "surface" || (m === "depths" && f.depthsReached) || (m === "ridge" && f.ridgeReached);
+    if (been && !s.discovered.maps.includes(m)) s.discovered.maps.push(m);
+  }
+
+  // Mission-critical Phase 3 items: exactly one each, never lost, gone once installed.
+  const critical = (item: "coupling" | "relayCell", source: string, usedUp: boolean, gotIt: boolean) => {
+    if (usedUp) {
+      if (s.inventory[item] > 0) {
+        s.inventory[item] = 0;
+        fixed.push(`removed spent ${item}`);
+      }
+    } else if (gotIt && s.inventory[item] < 1) {
+      s.inventory[item] = 1;
+      fixed.push(`restored lost ${item}`);
+    }
+    if (s.inventory[item] > 1) {
+      s.inventory[item] = 1;
+      fixed.push(`capped ${item}`);
+    }
+    if (gotIt && !s.collected.includes(source)) s.collected.push(source);
+  };
+  critical("coupling", "coupling_cache", f.circuitRestored, s.collected.includes("coupling_cache") || s.inventory.coupling > 0);
+  critical("relayCell", "sampler", f.cellInstalled, s.collected.includes("sampler") || s.inventory.relayCell > 0 || f.relayAnalyzed);
+
+  // World map: back-fill sections from checkpoints already visited (Phase 1-2 saves have none).
+  for (const id of s.visitedCheckpoints) {
+    const o = ALL_OBJECTS.find((x) => x.id === id);
+    const m = mapOfObject(id);
+    if (!o || !m) continue;
+    const sec = sectionAt(m, o.col, o.row - 1);
+    if (sec && !s.discovered.sections.includes(sec.id)) s.discovered.sections.push(sec.id);
   }
 
   // Solar parts: make sure the repair is always reachable.

@@ -28,6 +28,12 @@ export enum T {
   Door = 8, // solid until opened (hatch / station door)
   Bridge = 9, // placed when the bridge extends
   FloorHatch = 10, // the hatch between the ship's two decks (open after Mission 00)
+  // Phase 3 materials (Frozen Depths, Echo Ridge)
+  FrostRock = 11, // blue-violet cave rock
+  Ice = 12, // water-ice deposits (solid)
+  RidgeRock = 13, // weathered, tilted ridge strata
+  IceLedge = 14, // one-way ice shelf
+  Shutter = 15, // powered / light-sensor door: solid until opened
 }
 
 export enum B {
@@ -35,6 +41,9 @@ export enum B {
   Hull = 1,
   Cave = 2,
   Station = 3,
+  Frost = 4, // cave wall behind the Frozen Depths
+  Lab = 5, // survey facility interior panels
+  Ridge = 6, // dark rock behind ridge alcoves
 }
 
 export type TerrainOp =
@@ -191,7 +200,21 @@ export type ObjectKind =
   | "practiceConsole"
   | "practiceBuried"
   | "trainingMachine"
-  | "echoSensor";
+  | "echoSensor"
+  // Phase 3
+  | "transit" // lift, cable car, access gate: moves Laika to another map (see data/regions/registry.ts)
+  | "headlampKit"
+  | "lightSensor"
+  | "powerSource"
+  | "junction"
+  | "sampler"
+  | "liftControl"
+  | "relay"
+  | "commsJunction"
+  | "towerConsole"
+  | "cableControl"
+  | "acousticSensor"
+  | "locker";
 
 export interface WorldObject {
   id: string;
@@ -209,6 +232,14 @@ export interface WorldObject {
   text?: string[];
   /** Optional one-line science fact shown when the object is first used / collected. */
   fact?: string;
+  /** Phase 3: connection id for "transit" objects. */
+  link?: string;
+  /** Phase 3: checkpoint without a beacon pole (arrival points of lifts and gates). */
+  hidden?: boolean;
+  /** Phase 3: relay symbol shown on its plaque (colour-independent puzzle indicator). */
+  symbol?: "tri" | "circle" | "square";
+  /** Phase 3: relay dish target direction (0 = left, 1 = up-left, 2 = up, 3 = up-right). */
+  aim?: number;
 }
 
 export const OBJECTS: WorldObject[] = [
@@ -249,6 +280,9 @@ export const OBJECTS: WorldObject[] = [
   },
   { id: "receiver", kind: "receiver", col: 70, row: 24, label: "comms receiver" },
   { id: "workstation", kind: "workstation", col: 77, row: 24, label: "repair workstation" },
+  // Phase 3: the survey lift's top station. Dead until its power is restored from below (Frozen Depths).
+  { id: "outpost_lift", kind: "transit", col: 81, row: 24, label: "survey lift", link: "surveyLift" },
+  { id: "cp_outpost_lift", kind: "checkpoint", col: 80, row: 24, label: "Survey Lift", hidden: true },
   { id: "metal_crates", kind: "pickup", col: 84, row: 22, dx: 8, item: "metal" },
   { id: "elec_outpost", kind: "buried", col: 89, row: 24, item: "electronics" },
   {
@@ -348,6 +382,11 @@ export const OBJECTS: WorldObject[] = [
     text: ["NOTE ON THE WALL", "'If anyone finds this station:", " the beacon console still works.", " Listen closely.'"],
   },
   { id: "beacon", kind: "beacon", col: 231, row: 24, label: "signal console" },
+  // Phase 3: the station's freight lift down to the survey caves, and the cable car dock from the ridge.
+  { id: "station_lift", kind: "transit", col: 226, row: 24, label: "freight lift", link: "freightLift" },
+  { id: "cp_station_lift", kind: "checkpoint", col: 225, row: 24, label: "Freight Lift", hidden: true },
+  { id: "station_cable", kind: "transit", col: 233, row: 24, label: "cable car", link: "skyline" },
+  { id: "cp_station_cable", kind: "checkpoint", col: 233, row: 24, dx: -10, label: "Cable Car Dock", hidden: true },
 ];
 
 export function objectById(id: string): WorldObject | undefined {
@@ -371,13 +410,15 @@ export interface Region {
   x1: number;
   music: "game";
   ambience: "ship" | "outside" | "station";
+  /** Phase 3: world region number shown on the title card ("REGION 02"), and its id on the world map. */
+  regionNo?: number;
 }
 
 export const REGIONS: Region[] = [
-  { id: "ship", name: "Laika's Ship", x0: 0, x1: 23, music: "game", ambience: "ship" },
-  { id: "outpost", name: "Landing Outpost", x0: 24, x1: 93, music: "game", ambience: "outside" },
-  { id: "canyon", name: "Crimson Canyon", x0: 94, x1: 211, music: "game", ambience: "outside" },
-  { id: "station", name: "Ares Research Station", x0: 212, x1: 239, music: "game", ambience: "station" },
+  { id: "ship", name: "Laika's Ship", x0: 0, x1: 23, music: "game", ambience: "ship", regionNo: 1 },
+  { id: "outpost", name: "Landing Outpost", x0: 24, x1: 93, music: "game", ambience: "outside", regionNo: 1 },
+  { id: "canyon", name: "Crimson Canyon", x0: 94, x1: 211, music: "game", ambience: "outside", regionNo: 2 },
+  { id: "station", name: "Ares Research Station", x0: 212, x1: 239, music: "game", ambience: "station", regionNo: 3 },
 ];
 
 export interface TileRect {

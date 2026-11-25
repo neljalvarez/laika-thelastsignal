@@ -54,7 +54,8 @@ describe("Mission 01: A Signal in the Silence", () => {
     s.flags.reachedStation = true; // set by walking inside
     if (stages[stages.length - 1] !== getObjective(s).stage) stages.push(getObjective(s).stage);
     expect(worldEvents(step("beacon"))).toContain("demoComplete");
-    expect(stages).toEqual(["radio", "hatch", "receiver", "restore", "bridge", "station", "beacon", "complete"]);
+    // Phase 3: finishing Mission 01 now leads straight into Mission 02's first objective.
+    expect(stages).toEqual(["radio", "hatch", "receiver", "restore", "bridge", "station", "beacon", "m2_brief"]);
   });
 
   it("allows the solar repair and the comms module in either order", () => {

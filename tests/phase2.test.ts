@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { STATE_VERSION } from "../src/systems/state";
 import { SAVE_KEY, TUNING } from "../src/config/constants";
 import { LAIKA_ANIMS, LAIKA_FRAME_NAMES, laikaFrames, legAt, WALK, TROT } from "../src/art/laika";
 import { OBJECTS } from "../src/data/world";
@@ -37,9 +38,10 @@ describe("save migration v1 -> v2", () => {
     expect(r.status).toBe("ok");
     if (r.status !== "ok") return;
     const s = r.state;
-    expect(s.version).toBe(2);
-    expect(s.inventory).toEqual(v1.inventory);
-    expect(s.abilities).toEqual({ sniff: true, sweep: true, thrusters: true, bark: true });
+    expect(s.version).toBe(STATE_VERSION); // migrates step by step to the current format (v3 since Phase 3)
+    // Every Phase 1 item count is kept exactly; items added in later phases start at zero.
+    expect(s.inventory).toEqual({ ...v1.inventory, coupling: 0, relayCell: 0, recording: 0, roverPart: 0 });
+    expect(s.abilities).toEqual({ sniff: true, sweep: true, thrusters: true, bark: true, headlamp: false }); // Headlamp: Phase 3, not yet found
     expect(s.flags.solarRepaired).toBe(true);
     expect(s.checkpoint).toBe("cp_rover");
     expect(s.tutorial).toEqual({ status: "skipped", stage: "done" });

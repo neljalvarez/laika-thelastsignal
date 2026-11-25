@@ -2,7 +2,9 @@
  * Compiles the authored terrain operations (data/world.ts) into tile grids.
  * Pure: used by the game scene and by the level-validation tests.
  */
+import type { MapDef } from "../data/regions/types";
 import { B, BRIDGE_TILES, T, TERRAIN, WORLD_H, WORLD_W, type TerrainOp } from "../data/world";
+import type { GameState } from "./state";
 
 export interface WorldGrid {
   w: number;
@@ -36,7 +38,7 @@ export function buildWorld(ops: TerrainOp[] = TERRAIN, w = WORLD_W, h = WORLD_H)
   return { w, h, fg, bg };
 }
 
-export const ONE_WAY = new Set<T>([T.Ledge, T.Scaffold]);
+export const ONE_WAY = new Set<T>([T.Ledge, T.Scaffold, T.IceLedge]);
 
 export function isSolid(t: T): boolean {
   return t !== T.Empty && !ONE_WAY.has(t);
@@ -59,4 +61,21 @@ export function withCleared(g: WorldGrid, tiles: Array<[number, number]>): World
   const fg = g.fg.map((r) => r.slice());
   for (const [c, r] of tiles) fg[r][c] = T.Empty;
   return { ...g, fg };
+}
+
+/**
+ * Phase 3: builds any map's grid, with its state-driven doors opened and bridges placed.
+ * `doorsOpen` / `bridgesOut` override the state for validation (e.g. "everything open").
+ */
+export function buildMap(map: MapDef, s?: GameState, override?: { doorsOpen?: boolean; bridgesOut?: boolean }): WorldGrid {
+  const g = buildWorld(map.terrain, map.w, map.h);
+  for (const d of Object.values(map.doors)) {
+    const open = override?.doorsOpen ?? (s ? d.when(s) : false);
+    if (open) for (const [c, r] of d.tiles) g.fg[r][c] = T.Empty;
+  }
+  for (const b of Object.values(map.bridges)) {
+    const out = override?.bridgesOut ?? (s ? b.when(s) : false);
+    if (out) for (const [c, r] of b.tiles) g.fg[r][c] = T.Bridge;
+  }
+  return g;
 }
