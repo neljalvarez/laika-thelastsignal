@@ -27,7 +27,9 @@ export class TutorialUI {
     this.assist.setAttribute("role", "dialog");
     this.cards = el("div", "mission-card hidden");
     this.cards.setAttribute("aria-live", "assertive");
-    root.append(this.card, this.assist, this.cards);
+    // Below menu screens (pause / confirm), so they always cover the tutorial card.
+    const host = root.querySelector(".screen-host");
+    for (const e of [this.card, this.assist, this.cards]) root.insertBefore(e, host);
   }
 
   show(stage: TutorialStageDef, ctx: PromptContext, opts: { hint?: string; replay: boolean }): void {
@@ -108,6 +110,11 @@ export class TutorialUI {
     a.append(row);
     a.classList.remove("hidden");
     window.setTimeout(() => a.classList.add("hidden"), 14000);
+  }
+
+  /** True while the big title cards are on screen (the scene hides interaction prompts). */
+  get cardsShowing(): boolean {
+    return !this.cards.classList.contains("hidden");
   }
 
   /** Big centred title cards shown one after another (e.g. MISSION 00 COMPLETE, MISSION 01). */

@@ -545,7 +545,7 @@ export class UI {
     row("Interact / Dig / Repair", keyLabel(b.interact), "Action button", "Ⓧ");
     row("Sniff (scanner)", keyLabel(b.sniff), "SNIFF", "Ⓨ");
     row("Sprint", keyLabel(b.sprint), "RUN (toggle)", "Ⓑ / RB");
-    row("Bark (optional)", keyLabel(b.bark), "Action button near sensors", "LB");
+    row("Bark (optional)", keyLabel(b.bark), "BARK", "LB");
     row("Pause", "Esc / P", "II", "Start");
     card.append(grid, el("p", "", "Change keys in Settings → Controls."), button("Back", onBack));
     this.openScreen(card);
@@ -789,6 +789,7 @@ export class UI {
     mk("t-jump", "JUMP", "jump", "Jump");
     this.actBtn = mk("t-act", "E", "interact", "Interact");
     this.sniffBtn = mk("t-sniff", "SNIFF", "sniff", "Sniff");
+    mk("t-bark", "BARK", "bark", "Bark");
   }
 
   private clearTouchVisuals: () => void = () => undefined;

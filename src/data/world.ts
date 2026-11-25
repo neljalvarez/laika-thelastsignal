@@ -67,6 +67,7 @@ export const TERRAIN: TerrainOp[] = [
   back(B.Hull, 4, 22, 8, 13),
   back(B.Hull, 4, 22, 16, 21),
   fill(T.FloorHatch, 21, 22, 14, 15), // opens at the end of Mission 00
+  back(B.Hull, 21, 22, 14, 15), // hull wall behind the open hatch shaft (no sky showing through)
   fill(T.Crate, 11, 11, 13, 13), // training crate: the tutorial's first jump
   fill(T.Door, 23, 23, 19, 21), // hatch
   fill(T.Crate, 15, 15, 21, 21), // fallen cargo crate: the first jump
@@ -92,6 +93,10 @@ export const TERRAIN: TerrainOp[] = [
   clear(112, 122, 28, 30),
   fill(T.Ledge, 115, 116, 28, 28),
   fill(T.Ledge, 119, 120, 28, 28),
+  // Phase 2: a low one-way step in the west gap. A jump that comes up short heading west (easy with the new apex
+  // hang, which carries a fully held sprint jump past the stones) climbs straight out instead of looping back
+  // through the tunnel: pit floor -> step (1 tile) -> west lip (2 tiles).
+  fill(T.Ledge, 113, 114, 30, 30),
   back(B.Cave, 112, 122, 29, 30),
 
   // Survey tunnel: the pit drains east under the canyon floor and the mesa.

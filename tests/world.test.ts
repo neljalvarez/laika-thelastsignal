@@ -116,6 +116,28 @@ describe("world layout", () => {
     }
   });
 
+  it("a short westward jump at the pit climbs straight out (no loop back through the tunnel)", () => {
+    const easy: JumpAbility = { up: 2, across: 4 };
+    // BFS restricted to the pit and its west rim (cols 100-122), so the tunnel route cannot be used.
+    const floor: [number, number] = [112, 30]; // standing on the pit floor in the west gap
+    expect(canStand(full, ...floor)).toBe(true);
+    const goal = cellKey(109, 27); // standing on the west rim
+    expect(canStand(full, 109, 27)).toBe(true);
+    const seen = new Set([cellKey(...floor)]);
+    const queue: Array<[number, number]> = [floor];
+    let found = false;
+    while (queue.length && !found) {
+      const [c, r] = queue.shift()!;
+      for (const n of neighbours(full, c, r, easy)) {
+        if (n[0] < 100 || n[0] > 122 || seen.has(cellKey(...n))) continue;
+        if (cellKey(...n) === goal) found = true;
+        seen.add(cellKey(...n));
+        queue.push(n);
+      }
+    }
+    expect(found).toBe(true);
+  });
+
   it("Mission 00: the upper deck is sealed from the campaign, its practice objects are easy to reach, and the hatch leads down", () => {
     const tut: [number, number] = [TUTORIAL_SPAWN.col, TUTORIAL_SPAWN.row - 1];
     const easy: JumpAbility = { up: 2, across: 4 };

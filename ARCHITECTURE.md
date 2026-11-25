@@ -24,14 +24,18 @@ src/
   main.ts             creates services (settings, audio, input, UI) and the Phaser game; fits the overlay to the canvas
   app.ts              shared services + updateSettings()
   config/constants.ts resolution (480x270), tile size, storage keys, movement tuning, ranges
-  data/               ALL authored content: items & recipes, world terrain ops + objects + regions, transmissions & tips
+  data/               ALL authored content: items & recipes, world terrain ops + objects + regions, transmissions & tips,
+                      tutorial.ts (Mission 00 stage definitions: instruction per device, target, done(), hint)
   systems/            PURE TypeScript simulation (no Phaser, no DOM) - unit-tested
     state.ts          GameState (what is saved) + derived helpers (isPowered)
-    interactions.ts   getInteraction() / performInteraction() -> Effect[]
-    mission.ts        objective derived from state; completion stats
+    interactions.ts   getInteraction() / performInteraction() -> Effect[]; barkEffects()
+    mission.ts        objective derived from state (one action line + steps + optional goals); completion stats
+    tutorial.ts       Mission 00 state machine over facts (moved, revealed, repaired...); isolated practice items
+    hints.ts          adaptive hint levels driven by lack of progress; jump-struggle detection
+    animState.ts      locomotion animation choice + idle personality state machine
     inventory.ts      count / canAfford / spend / collectOnce (no duplication)
     movement.ts       Laika's movement controller (coyote, buffer, variable jump, boots, glide)
-    sniff.ts          scanner detection
+    sniff.ts          scanner detection, signal level (none/weak/strong/located), warmer/colder trend
     worldBuilder.ts   terrain ops -> tile grids
     navigation.ts     tile-level reachability solver (level validation)
     save.ts           versioned save, sanitize, migrate, repairState (anti soft-lock)
@@ -42,12 +46,18 @@ src/
   input/InputManager  keyboard (remappable) + touch + gamepad -> one InputFrame per frame
   game/               Phaser-side views and controllers
     WorldView.ts      tilemap layers, auto-tiling, custom collision faces, parallax, shells, secret walls, decor
-    Player.ts         Arcade body + sprite + animation state machine + particles + carried item
-    ObjectsView.ts    sprites for world objects, targeting, power/cable sequence, collect/reveal effects
-    SniffFx.ts        pulse ring, pings, direction arrows
+    Player.ts         Arcade body + sprite + animation (via animState) + particles + carried item, scripted
+                      animations (wake-up), corner correction and ledge assist, footprints
+    CameraController  look-ahead after sustained movement, platform snapping, underground framing, interest bias
+                      toward the current target, focus pans (skipped with reduced motion)
+    ObjectsView.ts    sprites for world objects, targeting, highlight glow, power/cable sequence, collect/reveal
+                      effects, practice / echo sensor / rover visuals
+    SniffFx.ts        pulse ring, pings, direction arrows, tracking rhythm and chevrons, located sparkle
   scenes/             BootScene (generate art) -> TitleScene -> GameScene (orchestrator)
-  ui/                 UI.ts (HUD, transmissions, menus, settings, touch) + ui.css
-tests/                Vitest: world validation, mission, saves, movement, settings/sniff/inventory
+  ui/                 UI.ts (HUD, objective panel, signal meter, captions, transmissions, menus, controls,
+                      settings, touch) + TutorialUI.ts (stage card, assist offer, mission title cards) + ui.css
+tests/                Vitest: world validation, mission, saves, movement, settings/sniff/inventory, tutorial, phase2
+playtest/             Python + Playwright browser play-tests (playthrough.py = Phase 1 route, phase2.py = A-H)
 ```
 
 ## Data flow (one frame)
@@ -67,6 +77,33 @@ GameScene ── ObjectsView.findTarget() ── getInteraction()  ──> UI.se
 - **Derived, not stored.** The objective, "powered", and receiver states are computed from flags, so saves cannot
   drift out of sync with the UI.
 
+## Mission 00 (tutorial) architecture
+
+```
+input / Player / ObjectsView ──events──> tutorialEvent(t, {woke | moved{dx,x} | jumpFailed | revealed | exited})
+E on a practice object ─────────────────> performPracticeInteraction(t, id) ──> { effects, completed }
+                                                       │
+                       TutorialState { mode: first | replay, stage, facts, holding }
+                                                       │ advance(): while stageDef(stage).done(facts) -> next
+                                                       ▼
+GameScene.onTutorialAdvance ──> TutorialUI.show(stage, {device, keys}) + highlight(target) + save stage
+```
+
+- **Facts, not timers.** Each stage in `data/tutorial.ts` has `done(facts)`. The system records what happened
+  (real distance moved, console used, item revealed/collected, machine repaired, hatch exited), and `advance` walks
+  forward through every stage whose condition is already true. Events that arrive early or out of order are recorded
+  but cannot skip a stage's own requirement; repeating an action is idempotent.
+- **Isolation.** Practice objects (`PRACTICE_IDS`) never go through `performInteraction`, so they cannot touch
+  `GameState.inventory`, `collected` or `flags`. The only campaign fields Mission 00 writes are
+  `tutorial.{status,stage}` and, on first completion, `abilities.sniff`. Replay mode builds a fresh `TutorialState`,
+  stores the return position, and on completion teleports back without saving any practice facts.
+- **Persistence.** `tutorial.stage` is saved as Laika moves through Mission 00; `createTutorial(mode, stage)`
+  rebuilds the facts implied by a saved stage, so Continue resumes at the right step.
+- **Prompts** are functions of `{device, keys}` (`InputManager.lastDevice` + current bindings), re-rendered when
+  the device or settings change.
+- **Gating.** While the tutorial is active the campaign objects are not interactable and the floor hatch tile is
+  solid; `hatchOpen(t)` opens it once the repair stage is done.
+
 ## Rendering
 
 - Internal resolution 480×270, `pixelArt: true`, `roundPixels`, `Scale.FIT`, CSS `image-rendering: pixelated`.
@@ -84,6 +121,11 @@ GameScene ── ObjectsView.findTarget() ── getInteraction()  ──> UI.se
   (later milestones imply earlier ones; the comms module is restored if lost; solar parts topped up if the world can
   no longer supply them). Corrupt or future-version saves are backed up and the title screen says so.
 - Autosave on checkpoints, pickups, repairs, pause, tab hide and every 20 s.
+- **Version 2 (Phase 2).** Adds `abilities.bark` and `tutorial: { status: active | done | skipped, stage }`.
+  `migrate` turns a v1 save into v2 with Bark unlocked and the tutorial marked **skipped**, so Phase 1 players keep
+  everything and are never pushed into Mission 00. `sanitize` repairs a damaged tutorial block (unknown status →
+  skipped; unknown stage → done) and `repairState` closes the tutorial if the campaign is already past it (hatch
+  open or radio checked).
 
 ## Extending the game
 
@@ -96,13 +138,18 @@ GameScene ── ObjectsView.findTarget() ── getInteraction()  ──> UI.se
 - **New ability:** add an `AbilityId`, unlock it from an effect, and read it in `Player` / `stepMovement`
   (see `thrusters` for a complete example: recipe → effect → texture swap → air jump).
 - **New mission:** write another `getObjective`-style function over new flags; add `FlagId`s and a save
-  migration step (`STATE_VERSION` 2, handled in `migrate`).
+  migration step (bump `STATE_VERSION`, now 2, and add a case in `migrate`).
+- **New tutorial stage:** add an id to `TutorialStageId` and `STAGE_ORDER`, a `TutorialStageDef` in
+  `data/tutorial.ts` (instructions for each device, `done(facts)`, hint), any new fact + event in
+  `systems/tutorial.ts`, and a test in `tests/tutorial.test.ts`.
 - **New transmission / tip:** `data/story.ts`.
 
 ## Testing
 
-- `npm test`: 51 unit tests, including a full mission playthrough on the pure rules, save corruption/migration/
-  anti-soft-lock cases, frame-rate independence of jumps, and a BFS reachability solver proving the level has no
-  dead ends and needs no precise platforming.
-- Browser play-tests (Phase 1) were run in headless Chrome with Playwright driving real keyboard and touch input;
-  see PHASE_1_HANDOFF.md.
+- `npm test`: 93 unit tests, including a full mission playthrough on the pure rules, save corruption/migration/
+  anti-soft-lock cases, frame-rate independence of jump height and distance (30/60/144 fps), a BFS reachability
+  solver proving the level has no dead ends and needs no precise platforming (and that the training bay is sealed
+  from the campaign), the tutorial state machine (order, real events, duplicates, replay isolation, save/reload,
+  device prompts), hints, animation states and gait phases.
+- Browser play-tests run in headless Chrome with Playwright driving real keyboard and touch input:
+  `playtest/playthrough.py` (Phase 1 route) and `playtest/phase2.py` (Phase 2 scenarios A–H). See the handoffs.

@@ -647,6 +647,15 @@ button.hud-btn:focus-visible {
   height: 54px;
   font-size: 12px;
 }
+.touch .t-bark {
+  right: 104px;
+  bottom: 106px;
+  width: 46px;
+  height: 46px;
+  font-size: 11px;
+  margin-right: env(safe-area-inset-right);
+  margin-bottom: env(safe-area-inset-bottom);
+}
 .touch .t-sprint.on {
   background: var(--accent);
 }

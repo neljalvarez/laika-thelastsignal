@@ -276,7 +276,7 @@ export class GameScene extends Phaser.Scene {
       frame.interactPressed = false;
       frame.jumpPressed = false;
     }
-    const locked = blocking || this.camCtl.focusing || time < this.lockedUntil;
+    const locked = blocking || this.camCtl.focusing || time < this.lockedUntil || tutorialUI().cardsShowing;
     this.state.playTimeMs += delta;
 
     const t = this.tutorial;
