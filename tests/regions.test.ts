@@ -73,6 +73,23 @@ describe("region registry", () => {
     }
   });
 
+  it("no interactable object crowds a lift, gate or cable car (pressing E next to a transit always uses it)", () => {
+    // Visible things you can press E on, other than the transit itself. Buried items only count once dug up,
+    // checkpoints and secrets are not interactions.
+    const quiet = new Set(["checkpoint", "secret", "buried"]);
+    const crowded: string[] = [];
+    for (const m of MAP_IDS) {
+      const objs = MAPS[m].objects;
+      for (const t of objs.filter((o) => o.kind === "transit")) {
+        for (const o of objs) {
+          if (o === t || quiet.has(o.kind) || Math.abs(o.row - t.row) > 1) continue;
+          if (Math.abs(o.col - t.col) < 3) crowded.push(`${t.id} <-> ${o.id}`);
+        }
+      }
+    }
+    expect(crowded).toEqual([]);
+  });
+
   it("the region graph is connected: every map can reach every other map once all connections are open", () => {
     const all = stateWith({ m2Briefed: true, depthsLiftOpen: true, relayAnalyzed: true, ridgeCableOpen: true });
     const seen = new Set<MapId>(["surface"]);

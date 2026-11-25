@@ -119,7 +119,8 @@ const OBJECTS: WorldObject[] = [
   {
     id: "sign_depths",
     kind: "sign",
-    col: 130,
+    col: 131, // three tiles from the freight lift (and signs have a short reach), so E at the lift rides it
+    dx: -8, // keeps the sign inside the room's east wall
     row: 12,
     label: "sign",
     text: ["ARES SURVEY FACILITY // LEVEL B", "Ice research - Power junction - Survey lift", "Lights: OFFLINE. Take a lamp."],
@@ -208,7 +209,7 @@ const OBJECTS: WorldObject[] = [
   {
     id: "sign_service",
     kind: "sign",
-    col: 13,
+    col: 14, // three tiles from the survey lift, so the lift always wins the interaction target
     row: 28,
     label: "sign",
     text: ["SERVICE TUNNEL", "Hatch opens when the junction has power.", "East end: NORTH ACCESS (ridge relay route)."],

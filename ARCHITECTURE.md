@@ -26,11 +26,20 @@ src/
   config/constants.ts resolution (480x270), tile size, storage keys, movement tuning, ranges
   data/               ALL authored content: items & recipes, world terrain ops + objects + regions, transmissions & tips,
                       tutorial.ts (Mission 00 stage definitions: instruction per device, target, done(), hint)
+    regions/          Phase 3: one module per MAP + the registry
+      types.ts        MapDef, Section, Landmark, Connection, LightSpot, Decor, TileGroup (doors / bridges)
+      surface.ts      the Phase 1-2 surface map (terrain + objects still in data/world.ts), described as 3 regions
+      frozenDepths.ts Region 04 (terrain ops, objects, sections, landmarks, lights, cables, doors)
+      echoRidge.ts    Region 05
+      registry.ts     MAPS, CONNECTIONS (freight lift, survey lift, North Access, cable car), global object lookup
   systems/            PURE TypeScript simulation (no Phaser, no DOM) - unit-tested
     state.ts          GameState (what is saved) + derived helpers (isPowered)
     interactions.ts   getInteraction() / performInteraction() -> Effect[]; barkEffects()
     mission.ts        objective derived from state (one action line + steps + optional goals); completion stats
     tutorial.ts       Mission 00 state machine over facts (moved, revealed, repaired...); isolated practice items
+    effects.ts        Effect / WorldEvent / Interaction types shared by interactions.ts and puzzles.ts
+    puzzles.ts        Phase 3 interactions: Headlamp, light sensor, circuit, drill, relays, acoustic sensor
+    regions.ts        sections, discovery, open connections, routeTo() (cross-map hints), transit interactions
     hints.ts          adaptive hint levels driven by lack of progress; jump-struggle detection
     animState.ts      locomotion animation choice + idle personality state machine
     inventory.ts      count / canAfford / spend / collectOnce (no duplication)
@@ -53,9 +62,11 @@ src/
     ObjectsView.ts    sprites for world objects, targeting, highlight glow, power/cable sequence, collect/reveal
                       effects, practice / echo sensor / rover visuals
     SniffFx.ts        pulse ring, pings, direction arrows, tracking rhythm and chevrons, located sparkle
+    Lighting.ts       darkness overlay for dark maps: one screen-sized RenderTexture, banded light stamps
   scenes/             BootScene (generate art) -> TitleScene -> GameScene (orchestrator)
   ui/                 UI.ts (HUD, objective panel, signal meter, captions, transmissions, menus, controls,
-                      settings, touch) + TutorialUI.ts (stage card, assist offer, mission title cards) + ui.css
+                      settings, touch) + TutorialUI.ts (stage card, assist offer, mission title cards)
+                      + WorldMapUI.ts (survey-journal world map, HTML/SVG) + ui.css
 tests/                Vitest: world validation, mission, saves, movement, settings/sniff/inventory, tutorial, phase2
 playtest/             Python + Playwright browser play-tests (playthrough.py = Phase 1 route, phase2.py = A-H)
 ```
@@ -76,6 +87,53 @@ GameScene ── ObjectsView.findTarget() ── getInteraction()  ──> UI.se
 - **No per-frame UI work.** The HTML overlay is updated only on change (prompt key, objective key, inventory).
 - **Derived, not stored.** The objective, "powered", and receiver states are computed from flags, so saves cannot
   drift out of sync with the UI.
+
+## Multi-map world (Phase 3)
+
+**Maps, regions, sections.** A *map* is one handcrafted tile grid that is built and rendered on its own
+(`surface`, `depths`, `ridge`). A map holds one or more numbered *regions* (title cards, hint wording) and finer
+*sections* (cells revealed on the world map). The surface stays the seamless Phase 1-2 map, so every existing
+object id, checkpoint and save still works. The new regions are separate maps because they have a different
+look, darkness and scale, and only one map is ever in memory.
+
+**Data, not code.** Each `MapDef` carries terrain ops, objects, sections, landmarks, secrets, optional zones,
+theme (backdrop, darkness, ambience, particles), decor, cable runs, light spots, state-driven door and bridge tile
+groups, its frame on the world map and tip zones. `worldBuilder.buildWorld(def)` turns ops into grids as before.
+Object ids are unique across all maps (tested), so the save keeps plain id lists.
+
+**Travel.**
+
+```
+E on a transit object -> performTransit() -> [anim, travel{connection, map, arrive}]
+GameScene.travel(): lock input, set state.checkpoint = arrival checkpoint, SAVE, fade (or 120 ms cut with
+  reduced motion) -> scene.restart({ state, arrival, facing })
+GameScene.create(): map = mapOfObject(state.checkpoint); build that map only; spawn at the checkpoint;
+  keep facing; region title card on first visit
+```
+
+Saving *before* the restart is what makes an interrupted transition safe: a reload lands at the arrival
+checkpoint in the new map. `transitioning` blocks double triggers, and the scene restart tears down every
+listener and texture-using object of the old map (no per-frame work for maps you are not in). A connection's
+`open(s)` is checked on both sides, so travel can never bypass a gate; a shortcut is a connection with a one-time
+`activate` step on its far side.
+
+**Discovery and the map.** `regions.discover(s, map, col, row)` returns newly entered sections, newly visible
+landmarks and arrival flags; GameScene calls it as Laika moves and on arrival. `WorldMapUI` draws only what
+`state.discovered` contains plus "known about" regions (seen a lift or gate leading there).
+
+**Hints across maps.** `routeTo(s, here, target)` returns the local object to aim for: the target itself when it
+is on this map, otherwise the transit object of the next hop (`nextHop` is a BFS over open connections). Highlight
+and the edge arrow use that local object, and the objective line already names the region, so a hint never
+points at something in an unloaded map.
+
+**Lighting.** Dark maps draw one 480×270 RenderTexture filled with darkness each frame and erase banded light
+stamps from it (Laika's aura, the headlamp cone, lamps that are on; off-screen lamps skipped). The darkness
+alpha is capped so walls and floors stay visible, and lowered further by "Brighter caves". Reflective markers sit
+above the darkness and fade in by how strongly the beam hits them. Cost does not grow with map size.
+
+**Puzzles** live in `systems/puzzles.ts` with the same contract as `interactions.ts`: `getRegionInteraction()`
+says what E would do, `performRegionInteraction()` mutates state and returns Effects. Every step is idempotent.
+Puzzle state is flags plus `puzzles.relayAim` (each relay dish's direction).
 
 ## Mission 00 (tutorial) architecture
 
@@ -121,6 +179,12 @@ GameScene.onTutorialAdvance ──> TutorialUI.show(stage, {device, keys}) + hig
   (later milestones imply earlier ones; the comms module is restored if lost; solar parts topped up if the world can
   no longer supply them). Corrupt or future-version saves are backed up and the title screen says so.
 - Autosave on checkpoints, pickups, repairs, pause, tab hide and every 20 s.
+- **Version 3 (Phase 3).** Adds `abilities.headlamp`, `discovered: { maps, sections, landmarks }` and
+  `puzzles: { relayAim }`, plus new flags and items (coupling, relay cell, recordings, rover parts). `migrate`
+  v2 → v3 sets the Headlamp to false, the map to "surface" and relays to their start directions; v1 saves go
+  v1 → v2 → v3. `repairState` back-fills the map from already visited checkpoints, implies earlier milestones
+  from later ones, and restores a lost relay cell or coupling; `sanitize` replaces an unknown checkpoint with the
+  last valid one visited. A finished Mission 01 therefore continues straight into Mission 02 without replaying anything.
 - **Version 2 (Phase 2).** Adds `abilities.bark` and `tutorial: { status: active | done | skipped, stage }`.
   `migrate` turns a v1 save into v2 with Bark unlocked and the tutorial marked **skipped**, so Phase 1 players keep
   everything and are never pushed into Mission 00. `sanitize` repairs a damaged tutorial block (unknown status →
@@ -146,10 +210,14 @@ GameScene.onTutorialAdvance ──> TutorialUI.show(stage, {device, keys}) + hig
 
 ## Testing
 
-- `npm test`: 93 unit tests, including a full mission playthrough on the pure rules, save corruption/migration/
+- `npm test`: 141 unit tests (Phase 3 adds `regions.test.ts` and `phase3.test.ts`: region registration, unique
+  ids, connection endpoints, region-graph connectivity, per-map reachability with and without Thruster Boots,
+  puzzle progression and idempotency, both missions on the pure rules, cross-map hint routing, discovery, v1/v2 →
+  v3 migration, invalid region recovery, interrupted transitions, item loss and duplication), including a full mission playthrough on the pure rules, save corruption/migration/
   anti-soft-lock cases, frame-rate independence of jump height and distance (30/60/144 fps), a BFS reachability
   solver proving the level has no dead ends and needs no precise platforming (and that the training bay is sealed
   from the campaign), the tutorial state machine (order, real events, duplicates, replay isolation, save/reload,
   device prompts), hints, animation states and gait phases.
 - Browser play-tests run in headless Chrome with Playwright driving real keyboard and touch input:
-  `playtest/playthrough.py` (Phase 1 route) and `playtest/phase2.py` (Phase 2 scenarios A–H). See the handoffs.
+  `playtest/playthrough.py` (Phase 1 route), `playtest/phase2.py` (Phase 2 scenarios A–H) and
+  `playtest/phase3.py` (Phase 3 scenarios A–K). See the handoffs.

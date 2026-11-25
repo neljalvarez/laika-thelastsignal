@@ -23,6 +23,8 @@ interface View {
 
 /** Interaction reach per kind: big machines can be used from further away. */
 const REACH: Partial<Record<WorldObject["kind"], number>> = {
+  // Signs are read when Laika stands at them, so they never steal E from a lift or console nearby.
+  sign: 18,
   habitat: 44,
   receiver: 26,
   workstation: 26,

@@ -385,8 +385,9 @@ export const OBJECTS: WorldObject[] = [
   // Phase 3: the station's freight lift down to the survey caves, and the cable car dock from the ridge.
   { id: "station_lift", kind: "transit", col: 226, row: 24, label: "freight lift", link: "freightLift" },
   { id: "cp_station_lift", kind: "checkpoint", col: 225, row: 24, label: "Freight Lift", hidden: true },
-  { id: "station_cable", kind: "transit", col: 233, row: 24, label: "cable car", link: "skyline" },
-  { id: "cp_station_cable", kind: "checkpoint", col: 233, row: 24, dx: -10, label: "Cable Car Dock", hidden: true },
+  // The dock is three tiles from the signal console, so E beside the console never rides the cable car.
+  { id: "station_cable", kind: "transit", col: 234, row: 24, label: "cable car", link: "skyline" },
+  { id: "cp_station_cable", kind: "checkpoint", col: 234, row: 24, dx: -10, label: "Cable Car Dock", hidden: true },
 ];
 
 export function objectById(id: string): WorldObject | undefined {

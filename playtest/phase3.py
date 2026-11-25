@@ -714,19 +714,31 @@ async def scenario_J(p):
     h0 = await heap()
     f_surface = await fps()
     trips = 0
-    for i in range(6):
+    slow = []
+
+    async def ride(obj, col, dest):
         # Arrivals are a step away from the lift (no transition loops), so walk up to it like a player.
-        await bot.walk_to(81)
-        await bot.interact("outpost_lift")
-        trips += 1 if await wait_map(pg, "depths") else 0
+        n = len(bot.log)
+        t0 = time.time()
+        await bot.walk_to(col)
+        q = await bot.P()
+        tg = await bot.T()
+        await bot.interact(obj)
+        if await wait_map(pg, dest):
+            return 1
+        late = await wait_map(pg, dest, 10000)
+        slow.append(f"{obj}: at col {q['col']} row {q['row']}, target {tg}, arrived late: {late} ({time.time() - t0:.1f}s), bot log {bot.log[n:]}")
+        print("   TRIP PROBLEM", slow[-1])
+        return 0
+
+    for i in range(6):
+        trips += await ride("outpost_lift", 81, "depths")
         if i == 0:
             f_depths = await fps()
-        await bot.walk_to(11)
-        await bot.interact("depths_lift")
-        trips += 1 if await wait_map(pg, "surface") else 0
+        trips += await ride("depths_lift", 11, "surface")
     h1 = await heap()
     after = await S(pg)
-    ok(f"{trips}/12 lift trips completed", trips == 12)
+    ok(f"{trips}/12 lift trips completed", trips == 12, "; ".join(slow))
     ok("no state drift across the trips", after["inventory"] == before["inventory"] and after["collected"] == before["collected"] and {k: v for k, v in after["flags"].items()} == {k: v for k, v in before["flags"].items()})
     pos = await bot.P()
     # The arrival saves cp_outpost_lift; the regular outpost checkpoint nearby may take over once she stands there.
