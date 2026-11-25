@@ -210,6 +210,7 @@ export class GameScene extends Phaser.Scene {
     svc().settingsListeners.add(this.settingsListener);
     document.addEventListener("visibilitychange", this.visibilityListener);
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
+      ui.setMenuOpen(false);
       svc().settingsListeners.delete(this.settingsListener);
       document.removeEventListener("visibilitychange", this.visibilityListener);
       ui.closeTransmission(false);
@@ -589,6 +590,7 @@ export class GameScene extends Phaser.Scene {
       this.physics.pause();
     }
     this.menu = "confirm";
+    ui.setMenuOpen(true);
     ui.confirm(
       "Skip the training? You can replay it any time from the Pause menu.",
       "Skip tutorial",
@@ -1212,6 +1214,7 @@ export class GameScene extends Phaser.Scene {
     this.save();
     this.time.delayedCall(900, () => {
       this.menu = "complete";
+      ui.setMenuOpen(true);
       this.scene.pause();
       this.physics.pause();
       ui.showStoryComplete(
@@ -1245,6 +1248,7 @@ export class GameScene extends Phaser.Scene {
     this.physics.pause();
     this.menu = "map";
     ui.clearTouch();
+    ui.setMenuOpen(true);
     const o = getObjective(this.state);
     worldMapUI().show({
       state: this.state,
@@ -1442,6 +1446,7 @@ export class GameScene extends Phaser.Scene {
     }
     this.menu = "pause";
     ui.clearTouch();
+    ui.setMenuOpen(true);
     const t = this.tutorial;
     ui.showPause({
       tutorial: t ? t.mode : null,
@@ -1512,6 +1517,7 @@ export class GameScene extends Phaser.Scene {
     ui.closeScreen();
     this.menu = "none";
     ui.clearTouch();
+    ui.setMenuOpen(false);
     this.physics.resume();
     this.scene.resume();
   }

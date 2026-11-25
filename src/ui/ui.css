@@ -574,6 +574,10 @@ button.hud-btn:focus-visible {
 
 /* ---------- Touch controls ---------- */
 
+.touch.menu-open {
+  display: none;
+}
+
 .touch {
   position: fixed;
   inset: 0;

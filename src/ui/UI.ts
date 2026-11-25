@@ -556,7 +556,7 @@ export class UI {
     row("Sniff (scanner)", keyLabel(b.sniff), "SNIFF", "Ⓨ");
     row("Sprint", keyLabel(b.sprint), "RUN (toggle)", "Ⓑ / RB");
     row("Bark (optional)", keyLabel(b.bark), "BARK", "LB");
-    row("World map", keyLabel(b.map), "▦ button", "Back / Select");
+    row("World map", `${keyLabel(b.map)} or Tab`, "▦ button", "Back / Select");
     row("Headlamp", "Automatic underground", "Automatic", "Automatic");
     row("Pause", "Esc / P", "II", "Start");
     card.append(grid, el("p", "", "Change keys in Settings → Controls."), button("Back", onBack));
@@ -677,7 +677,7 @@ export class UI {
       grid.append(lab, kb);
     }
     card.append(grid);
-    card.append(el("p", "", "Arrow keys always move, ↑/W also jump, Enter also interacts. Gamepads: A jump, X interact, Y sniff, LB bark, B sprint, Start pause."));
+    card.append(el("p", "", "Arrow keys always move, ↑/W also jump, Enter also interacts, Tab also opens the map. Gamepads: A jump, X interact, Y sniff, LB bark, B sprint, Back map, Start pause."));
     const row = el("div", "row-buttons");
     row.append(
       button("Back", () => {
@@ -851,6 +851,11 @@ export class UI {
     if (mode === "on") return true;
     if (mode === "off") return false;
     return window.matchMedia?.("(pointer: coarse)").matches || "ontouchstart" in window;
+  }
+
+  /** Full-screen menus (pause, map, confirm, completion) hide the touch controls so they never cover a menu button. */
+  setMenuOpen(on: boolean): void {
+    this.touchEl.classList.toggle("menu-open", on);
   }
 
   private hudOn = false;

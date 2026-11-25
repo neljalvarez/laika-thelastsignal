@@ -38,7 +38,7 @@ export const ALT_BINDINGS: Record<Action, string[]> = {
   sniff: [],
   sprint: ["ShiftRight"],
   bark: [],
-  map: [],
+  map: ["Tab"],
   pause: ["KeyP"],
 };
 

@@ -459,6 +459,13 @@ function telescope(p: Painter): void {
   p.rect(0, 4, 18, 5, C.out).rect(1, 5, 16, 3, C.steelL).rect(15, 3, 4, 7, C.out).rect(16, 4, 2, 5, C.glass);
 }
 
+function signService(p: Painter): void {
+  p.rect(13, 12, 3, 16, C.out).rect(14, 12, 1, 16, C.steelL);
+  box(p, 0, 0, 30, 14, "#33405a");
+  drawText(p, "TUNNEL", 2, 2, C.glass);
+  p.rect(13, 8, 4, 3, C.yellow).rect(14, 11, 2, 1, C.yellow);
+}
+
 function signRelay(p: Painter): void {
   p.rect(13, 12, 3, 16, C.out).rect(14, 12, 1, 16, C.steelL);
   box(p, 0, 0, 30, 14, C.cream);
@@ -577,6 +584,7 @@ export const REGION_PROPS: Record<string, PropDef> = {
   telescope: { w: 19, h: 24, draw: telescope },
   sign_overlook: { w: 34, h: 28, draw: signOverlook },
   sign_relay: { w: 30, h: 28, draw: signRelay },
+  sign_service: { w: 30, h: 28, draw: signService },
   light_s: lightStamp(32),
   light_m: lightStamp(56),
   light_l: lightStamp(96),

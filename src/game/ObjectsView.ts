@@ -192,7 +192,7 @@ export class ObjectsView {
         v.sprite = img("workstation_off");
         break;
       case "sign":
-        v.sprite = img(o.id === "sign_outpost" ? "sign_outpost" : o.id === "sign_depths" || o.id === "sign_service" ? "sign_lab" : o.id === "sign_ridge" ? "sign_relay" : "sign_canyon", DEPTH.propsBack);
+        v.sprite = img(o.id === "sign_outpost" ? "sign_outpost" : o.id === "sign_service" ? "sign_service" : o.id === "sign_depths" ? "sign_lab" : o.id === "sign_ridge" ? "sign_relay" : "sign_canyon", DEPTH.propsBack);
         break;
       case "log":
         v.sprite = img("terminal_on", DEPTH.propsBack);

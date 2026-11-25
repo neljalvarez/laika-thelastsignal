@@ -104,6 +104,11 @@ export class WorldView {
       if (opts.floorHatchOpen) for (const [c, r] of FLOOR_HATCH_TILES) this.grid.fg[r][c] = T.Empty;
     }
 
+    // Secret rooms count as solid rock for auto-tiling, so the rock around a hidden room shows no edge
+    // outline that would give it away (the room's own clue is its "loose rock" / reflective mark).
+    this.secretCells.clear();
+    for (const sec of this.mapDef.secrets)
+      for (let r = sec.rect.y0; r <= sec.rect.y1; r++) for (let c = sec.rect.x0; c <= sec.rect.x1; c++) this.secretCells.add(r * this.grid.w + c);
     for (let r = 0; r < this.grid.h; r++) {
       for (let c = 0; c < this.grid.w; c++) {
         const b = this.grid.bg[r][c];
@@ -117,7 +122,7 @@ export class WorldView {
     const wall = this.mapDef.id === "depths" ? T.FrostRock : this.mapDef.id === "ridge" ? T.RidgeRock : T.Rock;
     for (const sec of this.mapDef.secrets) {
       for (let r = sec.rect.y0; r <= sec.rect.y1; r++)
-        for (let c = sec.rect.x0; c <= sec.rect.x1; c++) this.secretLayer.putTileAt(terrainIndex(wall, 0, 3, hash(c, r) % 3), c, r);
+        for (let c = sec.rect.x0; c <= sec.rect.x1; c++) this.secretLayer.putTileAt(this.rockIndex(wall, c, r), c, r);
       this.secretRects.push({ id: sec.id, rect: sec.rect, inside: false });
     }
 
@@ -169,18 +174,29 @@ export class WorldView {
         index = specialIndex(`${kind}${end}` as "ledgeM");
         break;
       }
-      default: {
-        let mask = 0;
-        if (!this.solidAt(c, r - 1)) mask |= 1;
-        if (!this.solidAt(c + 1, r)) mask |= 2;
-        if (!this.solidAt(c, r + 1)) mask |= 4;
-        if (!this.solidAt(c - 1, r)) mask |= 8;
-        let depth = 0;
-        for (let y = r - 1; y >= 0 && depth < 4 && this.solidAt(c, y); y--) depth++;
-        index = terrainIndex(t, mask, depth, hash(c, r) % 3);
-      }
+      default:
+        index = this.rockIndex(t, c, r);
     }
     this.fg.putTileAt(index, c, r);
+  }
+
+  private readonly secretCells = new Set<number>();
+
+  /** Solid for auto-tiling purposes: real solid tiles plus hidden secret rooms. */
+  private looksSolid(c: number, r: number): boolean {
+    return this.solidAt(c, r) || this.secretCells.has(r * this.grid.w + c);
+  }
+
+  /** Auto-tiled index for a terrain tile: edges on exposed sides, deeper shading under more rock. */
+  private rockIndex(t: T, c: number, r: number): number {
+    let mask = 0;
+    if (!this.looksSolid(c, r - 1)) mask |= 1;
+    if (!this.looksSolid(c + 1, r)) mask |= 2;
+    if (!this.looksSolid(c, r + 1)) mask |= 4;
+    if (!this.looksSolid(c - 1, r)) mask |= 8;
+    let depth = 0;
+    for (let y = r - 1; y >= 0 && depth < 4 && this.looksSolid(c, y); y--) depth++;
+    return terrainIndex(t, mask, depth, hash(c, r) % 3);
   }
 
   /**
@@ -470,8 +486,9 @@ export class WorldView {
     }
     if (this.mapDef.id === "ridge") {
       // The relay tower, far away but always in view: the destination is visible before it is reached.
-      s.add.image(1500, 380, "tower_far").setOrigin(0.5, 1).setScrollFactor(0.3, 0.3).setDepth(DEPTH.spire).setAlpha(0.95);
-      const blink = s.add.image(1500, 262, "glow").setScrollFactor(0.3, 0.3).setDepth(DEPTH.spire + 1).setTint(0xff5040).setBlendMode(Phaser.BlendModes.ADD).setScale(0.35);
+      // Screen x = 400 - scrollX * 0.3: upper right of the first screen, drifting left as Laika climbs east.
+      s.add.image(400, 380, "tower_far").setOrigin(0.5, 1).setScrollFactor(0.3, 0.3).setDepth(DEPTH.spire).setAlpha(0.95);
+      const blink = s.add.image(400, 262, "glow").setScrollFactor(0.3, 0.3).setDepth(DEPTH.spire + 1).setTint(0xff5040).setBlendMode(Phaser.BlendModes.ADD).setScale(0.35);
       if (!reducedMotion) s.tweens.add({ targets: blink, alpha: 0.15, duration: 700, yoyo: true, repeat: -1 });
     }
     // Atmosphere: drifting frost motes underground, wind-blown dust on the ridge.

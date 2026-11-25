@@ -302,9 +302,9 @@ export const FROZEN_DEPTHS: MapDef = {
     { col: 47, row: 18, radius: 62, warm: true },
     { col: 45, row: 26, radius: 30 },
     { col: 130, row: 36, radius: 40 },
-    { col: 70, row: 14, radius: 100, group: "circuit" },
-    { col: 81, row: 14, radius: 100, group: "circuit" },
-    { col: 92, row: 14, radius: 100, group: "circuit" },
+    { col: 70, row: 16, radius: 90, group: "circuit" },
+    { col: 81, row: 16, radius: 90, group: "circuit" },
+    { col: 92, row: 16, radius: 90, group: "circuit" },
     { col: 38, row: 15, radius: 80, group: "circuit" },
     { col: 55, row: 15, radius: 80, group: "circuit" },
     { col: 40, row: 24, radius: 70, group: "circuit" },
@@ -312,7 +312,8 @@ export const FROZEN_DEPTHS: MapDef = {
     { col: 19, row: 19, radius: 90, group: "circuit" },
     { col: 29, row: 19, radius: 90, group: "circuit" },
     { col: 8, row: 21, radius: 70, group: "circuit" },
-    ...Array.from({ length: 11 }, (_, i) => ({ col: 8 + i * 12, row: 35, radius: 70, group: "circuit" })),
+    // Tunnel lamps are small: lights are not occluded, so a big radius would glow through the rock.
+    ...Array.from({ length: 11 }, (_, i) => ({ col: 8 + i * 12, row: 36, radius: 36, group: "circuit" })),
   ],
   doors: {
     passage: { tiles: [[65, 17], [65, 18], [65, 19]], when: (s) => s.flags.passageOpen },
