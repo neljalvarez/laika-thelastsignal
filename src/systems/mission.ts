@@ -6,7 +6,9 @@
  * edited saves always show a sensible next step.
  */
 import { RECIPES } from "../data/items";
+import { ALL_OBJECTS } from "../data/regions/registry";
 import { OBJECTS } from "../data/world";
+import { AIM_WORDS, networkReady, relayAligned } from "./puzzles";
 import { count } from "./inventory";
 import { allPanelsClean, SOLAR_PANELS, type GameState } from "./state";
 
@@ -190,6 +192,8 @@ export function getObjective(s: GameState): Objective {
       hint: "Walk to the far right end of the station. The console has a ring antenna on top.",
     };
   }
+  const m23 = phase3Objective(s);
+  if (m23) return m23;
   const samples = OBJECTS.filter((o) => o.item === "sample").length;
   return {
     stage: "complete",
@@ -212,5 +216,136 @@ export function completionStats(s: GameState): { samples: number; samplesTotal: 
     treat: s.collected.includes("treat"),
     boots: s.abilities.thrusters,
     minutes: Math.max(1, Math.round(s.playTimeMs / 60000)),
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Phase 3: Mission 02 "Beneath the Red" and Mission 03 "Echoes Above"
+// ---------------------------------------------------------------------------
+
+export const MISSION_02 = "Mission 02: Beneath the Red";
+export const MISSION_03 = "Mission 03: Echoes Above";
+
+/** World-wide optional discoveries (Phase 3 journal). The drill's water-ice core counts as a sample. */
+export function journal(s: GameState): Array<{ label: string; have: number; total: number }> {
+  const total = (pred: (o: (typeof ALL_OBJECTS)[number]) => boolean) => ALL_OBJECTS.filter(pred).length;
+  return [
+    { label: "Geological samples", have: count(s, "sample"), total: total((o) => o.item === "sample") + 1 },
+    { label: "Golden Treats", have: count(s, "treat"), total: total((o) => o.item === "treat") },
+    { label: "Research recordings", have: count(s, "recording"), total: total((o) => o.item === "recording") },
+    { label: "Rover R-2 parts", have: count(s, "roverPart"), total: total((o) => o.item === "roverPart") },
+  ];
+}
+
+function optional23(s: GameState): ObjectiveStep[] {
+  const j = journal(s).map((e) => ({ text: `${e.label} (${Math.min(e.have, e.total)}/${e.total})`, done: e.have >= e.total }));
+  return [...j, { text: "Build Thruster Boots at the outpost workstation", done: s.abilities.thrusters }];
+}
+
+function m2Steps(s: GameState): ObjectiveStep[] {
+  const f = s.flags;
+  const cell = s.collected.includes("sampler");
+  return [
+    { text: "Check the relay logs at the station console", done: f.m2Briefed },
+    { text: "Ride the freight lift down to the Frozen Depths", done: f.depthsReached },
+    { text: "Fix the survey lamp (Headlamp)", done: s.abilities.headlamp },
+    { text: "Follow the markers through the dark chamber", done: f.passageOpen },
+    { text: "Find the power coupling and restore the circuit", done: f.circuitRestored },
+    { text: "Recover the relay cell in the water-ice chamber", done: cell },
+    { text: "Start the survey lift (shortcut)", done: f.depthsLiftOpen },
+    { text: "Analyse the relay cell at the outpost receiver", done: f.relayAnalyzed },
+  ];
+}
+
+function m3Steps(s: GameState): ObjectiveStep[] {
+  const f = s.flags;
+  return [
+    { text: "Reach Echo Ridge through the North Access", done: f.ridgeReached },
+    { text: "Restore Relay A △", done: f.relayASwept },
+    { text: "Install the relay cell at Ridge Camp", done: f.cellInstalled },
+    { text: "Align Relay B ○", done: relayAligned(s, "relay_b") },
+    { text: "Find and align Relay C □", done: f.relayCFound && relayAligned(s, "relay_c") },
+    { text: "Climb the relay tower and trace the signal", done: f.signalTraced },
+    { text: "Start the cable car (shortcut)", done: f.ridgeCableOpen },
+  ];
+}
+
+function phase3Objective(s: GameState): Objective | null {
+  const f = s.flags;
+  if (!f.demoComplete) return null;
+  const opt = optional23(s);
+  const m2 = (stage: string, primary: string, target: string | undefined, hint: string, action: Objective["action"] = "interact"): Objective => ({
+    stage,
+    title: MISSION_02,
+    primary,
+    action,
+    target,
+    steps: m2Steps(s),
+    optional: opt,
+    hint,
+  });
+  const m3 = (stage: string, primary: string, target: string | undefined, hint: string, action: Objective["action"] = "interact"): Objective => ({
+    stage,
+    title: MISSION_03,
+    primary,
+    action,
+    target,
+    steps: m3Steps(s),
+    optional: opt,
+    hint,
+  });
+
+  if (!f.m2Briefed) return m2("m2_brief", "Ares Station: check the relay logs at the signal console.", "beacon", "The ring-antenna console at the back of the station has more to say.");
+  if (!f.depthsReached) return m2("m2_descend", "Ares Station: ride the freight lift down to the survey caves.", "station_lift", "The freight lift is under the catwalk inside the station.");
+  if (!s.abilities.headlamp) return m2("m2_lamp", "Frozen Depths: fix the survey lamp by the entrance.", "headlamp_kit", "The lamp sits on a crate right next to where the freight lift stops.");
+  if (!f.passageOpen) {
+    return m2(
+      "m2_light",
+      "Frozen Depths: follow the shining markers to the light sensor in the dark chamber.",
+      "light_sensor",
+      "In the dark chamber, take the lower walkway west. Your headlamp makes the arrows shine; shine it on the sensor by the shutter.",
+    );
+  }
+  if (!f.circuitRestored) {
+    if (s.inventory.coupling > 0) return m2("m2_install", "Frozen Depths: install the power coupling in the junction below the equipment room.", "depths_junction", "Drop down the shelves at the west end of the equipment room.");
+    if (!f.junctionInspected) return m2("m2_junction", "Frozen Depths: find the power junction below the equipment room.", "depths_junction", "Past the shutter, go west through the equipment room and climb down the ice shelves.");
+    return m2("m2_coupling", "Frozen Depths: sniff out the spare power coupling in the equipment room.", "coupling_cache", "The crew note says it's in the frost by the door. Sniff near the warm lamp.", "sniff");
+  }
+  if (!s.collected.includes("sampler")) {
+    return m2("m2_drill", "Frozen Depths: run the core drill in the water-ice chamber.", "sampler", "The door at the west end of the junction hall has power now.");
+  }
+  if (!f.depthsLiftOpen) return m2("m2_lift", "Frozen Depths: start the survey lift in the lift hall, west of the ice chamber.", "depths_lift", "Keep going west past the core drill.");
+  if (!f.relayAnalyzed) {
+    return m2("m2_analyse", "Landing Outpost: analyse the relay cell at the comms receiver.", "receiver", "Ride the survey lift up: it comes out right next to the outpost workstation.");
+  }
+
+  // ---------------- Mission 03 ----------------
+  if (!f.ridgeReached) {
+    return m3("m3_gate", "Frozen Depths: take the service tunnel east to the North Access.", "depths_north", "Ride the survey lift down. The service hatch in the lift hall floor drops into the tunnel.");
+  }
+  if (!f.relayASwept) return m3("m3_relayA", "Echo Ridge: sweep the dust off Relay A △.", "relay_a", "Relay A stands by the path, just past the camp sign. Use your tail!");
+  if (!f.cellInstalled) {
+    return m3("m3_cell", "Echo Ridge: climb to Ridge Camp and install the relay cell in the junction.", "comms_junction", "Zigzag up the ledges on the cliff. The camp is on top.");
+  }
+  if (!networkReady(s)) {
+    if (!relayAligned(s, "relay_b")) {
+      return m3("m3_relayB", `Echo Ridge: turn Relay B ○ until its dish points ${AIM_WORDS[3]}, like its plaque.`, "relay_b", "Relay B is on the metal antenna platform east of Ridge Camp.");
+    }
+    if (!f.relayCFound) {
+      return m3("m3_findC", "Echo Ridge: Relay C □ is hidden. Sniff to follow its faint signal.", "relay_c", "Sniff on the cliff climb: the signal comes from inside the big boulder.", "sniff");
+    }
+    if (!relayAligned(s, "relay_c")) {
+      return m3("m3_relayC", `Echo Ridge: turn Relay C □ until its dish points ${AIM_WORDS[4]}, like its plaque.`, "relay_c", "Relay C is in the niche inside the boulder.");
+    }
+  }
+  if (!f.signalTraced) return m3("m3_trace", "Echo Ridge: climb the relay tower and trace the signal at the top.", "tower_console", "The tower door is open. Zigzag up the stairs inside.");
+  if (!f.ridgeCableOpen) return m3("m3_cable", "Echo Ridge: start the cable car at the top of the tower.", "ridge_cable", "The cable car station is at the east end of the tower's top deck.");
+  return {
+    stage: "m3_complete",
+    title: "Missions complete!",
+    primary: "Explore freely. The signal waits in the north...",
+    steps: [...m2Steps(s), ...m3Steps(s)],
+    optional: opt,
+    hint: "Use the map (M) to find areas you have not explored yet. Shortcuts: survey lift and cable car.",
   };
 }

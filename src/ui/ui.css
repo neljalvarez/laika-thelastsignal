@@ -574,6 +574,10 @@ button.hud-btn:focus-visible {
 
 /* ---------- Touch controls ---------- */
 
+.touch.menu-open {
+  display: none;
+}
+
 .touch {
   position: fixed;
   inset: 0;
@@ -934,4 +938,103 @@ body.reduced-motion * {
 }
 #ui.touch-on .hud-objective {
   max-width: min(42%, calc(320px * var(--ui-scale)));
+}
+
+/* ===================== Phase 3 ===================== */
+
+/* Gadget strip (abilities Laika has): symbol + tooltip, never colour alone. */
+.hud-abilities {
+  display: flex;
+  gap: calc(3px * var(--ui-scale));
+}
+.ability-chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: calc(20px * var(--ui-scale));
+  height: calc(20px * var(--ui-scale));
+  padding: 0 3px;
+  font-size: calc(9px * var(--ui-scale));
+  color: var(--edge);
+  background: rgba(255, 241, 208, 0.85);
+  border: 2px solid var(--edge);
+}
+
+/* World map: a survey-journal sheet. */
+.world-map {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(10, 6, 16, 0.72);
+  pointer-events: auto;
+  z-index: 50;
+}
+.world-map.hidden {
+  display: none;
+}
+.map-card {
+  width: min(96%, 980px);
+  max-height: 96%;
+  overflow: auto;
+  background: #2a2030;
+  color: var(--cream, #fff1d0);
+}
+.map-head h2 {
+  margin: 0 0 2px;
+}
+.map-head p,
+.map-goal,
+.map-legend {
+  margin: 4px 0;
+  font-size: calc(12px * var(--ui-scale));
+}
+.map-goal {
+  color: #f2ca76;
+}
+.map-svg {
+  width: 100%;
+  height: auto;
+  display: block;
+  border: 2px solid #4a3a4a;
+  image-rendering: pixelated;
+}
+.map-svg .map-label {
+  font: 700 2.1px "Pixelify Sans", monospace;
+  fill: #fff1d0;
+}
+.map-svg .map-tiny {
+  font: 1.6px "Pixelify Sans", monospace;
+  fill: #e0cfa8;
+}
+.map-svg .map-sym {
+  font: 2.2px "Pixelify Sans", monospace;
+}
+.map-svg .lm {
+  fill: #f2ca76;
+}
+.map-svg .cp {
+  fill: #81c995;
+}
+.map-svg .q {
+  fill: #ffffff;
+  font-weight: 700;
+}
+.map-svg .goal {
+  fill: #ffd24a;
+  font-size: 3px;
+}
+@media (prefers-reduced-motion: no-preference) {
+  body:not(.reduced-motion) .map-laika {
+    animation: map-pulse 1s ease-in-out infinite alternate;
+  }
+}
+@keyframes map-pulse {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0.45;
+  }
 }

@@ -4,10 +4,17 @@
  * runtime. Simulation state lives elsewhere; this only shows it.
  */
 import Phaser from "phaser";
-import { TILE, VIEW_H } from "../config/constants";
-import { backIndex, specialIndex, terrainIndex } from "../art/tiles";
-import { B, BRIDGE_TILES, FLOOR_HATCH_TILES, HATCH_TILES, INTERIORS, SECRETS, STATION_DOOR_TILES, T, type TileRect } from "../data/world";
+import { TILE, VIEW_H, VIEW_W } from "../config/constants";
+import { backIndex, special2Index, specialIndex, terrainIndex } from "../art/tiles";
+import type { MapDef } from "../data/regions/types";
+import { B, BRIDGE_TILES, FLOOR_HATCH_TILES, HATCH_TILES, INTERIORS, STATION_DOOR_TILES, T, type TileRect } from "../data/world";
+import type { GameState } from "../systems/state";
 import { isSolid, type WorldGrid } from "../systems/worldBuilder";
+
+/** Decor that hangs from the ceiling (origin at the top). */
+const HANGING = new Set(["stalactite", "icicles"]);
+/** Solid terrain materials that auto-tile against each other. */
+const TERRAIN_T = new Set<T>([T.Regolith, T.Rock, T.Hull, T.Cave, T.FloorHatch, T.FrostRock, T.Ice, T.RidgeRock]);
 
 export const DEPTH = {
   sky: -20,
@@ -55,12 +62,21 @@ export class WorldView {
   private printIndex = 0;
   /** Fired when Laika first steps into a secret area. */
   onSecretEntered: ((id: string) => void) | null = null;
+  /** Phase 3: reflective decor (sits above the darkness; Lighting sets its alpha). */
+  reflective: Phaser.GameObjects.Image[] = [];
+  private particles: Phaser.GameObjects.Particles.ParticleEmitter | null = null;
+  private doorState = new Map<string, boolean>();
 
   constructor(
     private scene: Phaser.Scene,
     grid: WorldGrid,
+    readonly mapDef: MapDef,
   ) {
     this.grid = { ...grid, fg: grid.fg.map((r) => r.slice()) };
+  }
+
+  get isSurface(): boolean {
+    return this.mapDef.id === "surface";
   }
 
   get widthPx(): number {
@@ -73,17 +89,26 @@ export class WorldView {
   create(opts: { hatchOpen: boolean; bridge: boolean; stationDoorOpen: boolean; floorHatchOpen: boolean; reducedMotion: boolean }): void {
     const s = this.scene;
     this.createParallax();
+    for (const [id, d] of Object.entries(this.mapDef.doors)) this.doorState.set(`door:${id}`, d.tiles.every(([c, r]) => this.grid.fg[r][c] === T.Empty));
+    for (const [id, b] of Object.entries(this.mapDef.bridges)) this.doorState.set(`bridge:${id}`, b.tiles.every(([c, r]) => this.grid.fg[r][c] === T.Bridge));
     this.map = s.make.tilemap({ tileWidth: TILE, tileHeight: TILE, width: this.grid.w, height: this.grid.h });
     const ts = this.map.addTilesetImage("tiles", "tiles", TILE, TILE, 0, 0)!;
     this.bg = this.map.createBlankLayer("bg", ts)!.setDepth(DEPTH.back);
     this.fg = this.map.createBlankLayer("fg", ts)!.setDepth(DEPTH.tiles);
     this.secretLayer = this.map.createBlankLayer("secret", ts)!.setDepth(DEPTH.secret);
 
-    if (opts.hatchOpen) for (const [c, r] of HATCH_TILES) this.grid.fg[r][c] = T.Empty;
-    if (opts.stationDoorOpen) for (const [c, r] of STATION_DOOR_TILES) this.grid.fg[r][c] = T.Empty;
-    if (opts.bridge) for (const [c, r] of BRIDGE_TILES) this.grid.fg[r][c] = T.Bridge;
-    if (opts.floorHatchOpen) for (const [c, r] of FLOOR_HATCH_TILES) this.grid.fg[r][c] = T.Empty;
+    if (this.isSurface) {
+      if (opts.hatchOpen) for (const [c, r] of HATCH_TILES) this.grid.fg[r][c] = T.Empty;
+      if (opts.stationDoorOpen) for (const [c, r] of STATION_DOOR_TILES) this.grid.fg[r][c] = T.Empty;
+      if (opts.bridge) for (const [c, r] of BRIDGE_TILES) this.grid.fg[r][c] = T.Bridge;
+      if (opts.floorHatchOpen) for (const [c, r] of FLOOR_HATCH_TILES) this.grid.fg[r][c] = T.Empty;
+    }
 
+    // Secret rooms count as solid rock for auto-tiling, so the rock around a hidden room shows no edge
+    // outline that would give it away (the room's own clue is its "loose rock" / reflective mark).
+    this.secretCells.clear();
+    for (const sec of this.mapDef.secrets)
+      for (let r = sec.rect.y0; r <= sec.rect.y1; r++) for (let c = sec.rect.x0; c <= sec.rect.x1; c++) this.secretCells.add(r * this.grid.w + c);
     for (let r = 0; r < this.grid.h; r++) {
       for (let c = 0; c < this.grid.w; c++) {
         const b = this.grid.bg[r][c];
@@ -93,22 +118,23 @@ export class WorldView {
     }
     this.refreshCollision();
 
-    // Secret walls: draw rock over the hidden room.
-    for (const sec of SECRETS) {
+    // Secret walls: draw the map's rock over the hidden room.
+    const wall = this.mapDef.id === "depths" ? T.FrostRock : this.mapDef.id === "ridge" ? T.RidgeRock : T.Rock;
+    for (const sec of this.mapDef.secrets) {
       for (let r = sec.rect.y0; r <= sec.rect.y1; r++)
-        for (let c = sec.rect.x0; c <= sec.rect.x1; c++) this.secretLayer.putTileAt(terrainIndex(T.Rock, 0, 3, hash(c, r) % 3), c, r);
+        for (let c = sec.rect.x0; c <= sec.rect.x1; c++) this.secretLayer.putTileAt(this.rockIndex(wall, c, r), c, r);
       this.secretRects.push({ id: sec.id, rect: sec.rect, inside: false });
     }
 
-    this.createDecor();
+    if (this.isSurface) this.createDecor();
+    else this.createRegionDecor(opts.reducedMotion);
   }
 
   // ---------------- tiles ----------------
 
   private solidAt(c: number, r: number): boolean {
     if (c < 0 || c >= this.grid.w || r < 0 || r >= this.grid.h) return true;
-    const t = this.grid.fg[r][c];
-    return t === T.Regolith || t === T.Rock || t === T.Hull || t === T.Cave || t === T.FloorHatch;
+    return TERRAIN_T.has(this.grid.fg[r][c]);
   }
 
   private paintFg(c: number, r: number): void {
@@ -123,8 +149,17 @@ export class WorldView {
         index = specialIndex("crate");
         break;
       case T.Door:
-        index = c > 200 ? specialIndex("stationDoor") : specialIndex("door");
+        index = this.isSurface && c > 200 ? specialIndex("stationDoor") : specialIndex("door");
         break;
+      case T.Shutter:
+        index = special2Index("shutter");
+        break;
+      case T.IceLedge: {
+        const same = (x: number) => this.grid.fg[r]?.[x] === t;
+        const end = !same(c - 1) && !same(c + 1) ? "M" : !same(c - 1) ? "L" : !same(c + 1) ? "R" : "M";
+        index = special2Index(`iceLedge${end}`);
+        break;
+      }
       case T.Bridge:
         index = specialIndex("bridge");
         break;
@@ -139,18 +174,29 @@ export class WorldView {
         index = specialIndex(`${kind}${end}` as "ledgeM");
         break;
       }
-      default: {
-        let mask = 0;
-        if (!this.solidAt(c, r - 1)) mask |= 1;
-        if (!this.solidAt(c + 1, r)) mask |= 2;
-        if (!this.solidAt(c, r + 1)) mask |= 4;
-        if (!this.solidAt(c - 1, r)) mask |= 8;
-        let depth = 0;
-        for (let y = r - 1; y >= 0 && depth < 4 && this.solidAt(c, y); y--) depth++;
-        index = terrainIndex(t, mask, depth, hash(c, r) % 3);
-      }
+      default:
+        index = this.rockIndex(t, c, r);
     }
     this.fg.putTileAt(index, c, r);
+  }
+
+  private readonly secretCells = new Set<number>();
+
+  /** Solid for auto-tiling purposes: real solid tiles plus hidden secret rooms. */
+  private looksSolid(c: number, r: number): boolean {
+    return this.solidAt(c, r) || this.secretCells.has(r * this.grid.w + c);
+  }
+
+  /** Auto-tiled index for a terrain tile: edges on exposed sides, deeper shading under more rock. */
+  private rockIndex(t: T, c: number, r: number): number {
+    let mask = 0;
+    if (!this.looksSolid(c, r - 1)) mask |= 1;
+    if (!this.looksSolid(c + 1, r)) mask |= 2;
+    if (!this.looksSolid(c, r + 1)) mask |= 4;
+    if (!this.looksSolid(c - 1, r)) mask |= 8;
+    let depth = 0;
+    for (let y = r - 1; y >= 0 && depth < 4 && this.looksSolid(c, y); y--) depth++;
+    return terrainIndex(t, mask, depth, hash(c, r) % 3);
   }
 
   /**
@@ -215,14 +261,28 @@ export class WorldView {
       const sprite = s.add.tileSprite(0, 0, s.scale.width, VIEW_H, key).setOrigin(0, 0).setScrollFactor(0).setDepth(depth);
       this.parallax.push({ sprite, fx, fy, baseY });
     };
-    add("bg_sky", DEPTH.sky, 0.02, 0, 0);
-    add("bg_far", DEPTH.far, 0.08, 0.08, 4);
-    add("bg_mid", DEPTH.mid, 0.2, 0.2, 10);
-    add("bg_near", DEPTH.near, 0.4, 0.4, 14);
+    const theme = this.mapDef.theme.backdrop;
+    if (theme === "surface") {
+      add("bg_sky", DEPTH.sky, 0.02, 0, 0);
+      add("bg_far", DEPTH.far, 0.08, 0.08, 4);
+      add("bg_mid", DEPTH.mid, 0.2, 0.2, 10);
+      add("bg_near", DEPTH.near, 0.4, 0.4, 14);
+    } else if (theme === "depths") {
+      add("bgd_sky", DEPTH.sky, 0.02, 0, 0);
+      add("bgd_far", DEPTH.far, 0.1, 0.05, 0);
+      add("bgd_mid", DEPTH.mid, 0.25, 0.12, 0);
+      add("bgd_near", DEPTH.near, 0.45, 0.2, 0);
+    } else {
+      // Echo Ridge is tall: small vertical factors keep the layers on screen at every height.
+      add("bgr_sky", DEPTH.sky, 0.01, 0, 0);
+      add("bgr_far", DEPTH.far, 0.05, 0.04, 6);
+      add("bgr_mid", DEPTH.mid, 0.15, 0.08, 16);
+      add("bgr_near", DEPTH.near, 0.35, 0.14, 26);
+    }
   }
 
   updateParallax(cam: Phaser.Cameras.Scene2D.Camera): void {
-    const refY = 210;
+    const refY = this.mapDef.theme.refY;
     for (const p of this.parallax) {
       p.sprite.tilePositionX = Math.round(cam.scrollX * p.fx);
       p.sprite.y = Math.round(p.baseY - (cam.scrollY - refY) * p.fy);
@@ -332,12 +392,13 @@ export class WorldView {
     for (let i = 0; i < 40; i++) this.prints.push(s.add.image(0, 0, "pawprint").setDepth(DEPTH.tiles + 1).setVisible(false));
   }
 
-  /** Leaves a pawprint in soft ground (regolith or rock), which fades after a few seconds. */
+  /** Leaves a pawprint in soft ground (regolith, rock, frost or ridge dust), which fades after a few seconds. */
   addFootprint(x: number, feetY: number): void {
     const c = Math.floor(x / TILE);
     const r = Math.floor((feetY + 2) / TILE);
     const t = this.grid.fg[r]?.[c];
-    if (t !== T.Regolith && t !== T.Rock) return;
+    if (t !== T.Regolith && t !== T.Rock && t !== T.FrostRock && t !== T.RidgeRock) return;
+    if (this.prints.length === 0) return;
     const img = this.prints[this.printIndex++ % this.prints.length];
     this.scene.tweens.killTweensOf(img);
     img.setPosition(Math.round(x), Math.round(feetY) + 1).setVisible(true).setAlpha(0.85);
@@ -346,6 +407,7 @@ export class WorldView {
 
   /** Mission 00: dark until the fan is repaired. */
   setUpperDeckLit(lit: boolean, animated: boolean): void {
+    if (!this.isSurface || !this.deckDark) return;
     this.scene.tweens.killTweensOf(this.deckDark);
     if (animated) this.scene.tweens.add({ targets: this.deckDark, alpha: lit ? 0 : 0.42, duration: 900 });
     else this.deckDark.setAlpha(lit ? 0 : 0.42);
@@ -361,11 +423,14 @@ export class WorldView {
   }
 
   setFloorHatch(open: boolean): void {
+    if (!this.isSurface) return;
     this.setTiles(FLOOR_HATCH_TILES, open ? T.Empty : T.FloorHatch);
   }
 
   /** Inside a tunnel or cave (used by the camera). */
   isUnderground(x: number, y: number): boolean {
+    if (this.mapDef.id === "depths") return true;
+    if (this.mapDef.id === "ridge") return false;
     const c = Math.floor(x / TILE);
     const r = Math.floor(y / TILE);
     return this.grid.bg[r]?.[c] === B.Cave && r > 24;
@@ -394,7 +459,84 @@ export class WorldView {
   }
 
   isInside(which: "ship" | "station", px: number, py: number): boolean {
+    if (!this.isSurface) return false;
     const r = INTERIORS[which];
     return px >= r.x0 * TILE && px < (r.x1 + 1) * TILE && py > r.y0 * TILE && py <= (r.y1 + 1) * TILE + 4;
+  }
+
+  // ---------------- Phase 3: region decor, doors and bridges ----------------
+
+  private createRegionDecor(reducedMotion: boolean): void {
+    const s = this.scene;
+    for (const d of this.mapDef.decor) {
+      const hang = HANGING.has(d.key);
+      const img = s.add
+        .image(d.col * TILE + 8 + (d.dx ?? 0), d.row * TILE + (d.dy ?? 0) + (hang ? 0 : 1), d.key)
+        .setOrigin(0.5, hang ? 0 : 1)
+        .setDepth(d.reflective ? DEPTH.player + 3 : d.front ? DEPTH.props + 1 : DEPTH.propsBack - 1);
+      if (d.flip) img.setFlipX(true);
+      if (d.scroll) img.setScrollFactor(d.scroll[0], d.scroll[1]);
+      if (d.alpha !== undefined) img.setAlpha(d.alpha);
+      if (d.scale) img.setScale(d.scale);
+      if (d.key === "tower_frame") img.setDepth(DEPTH.back + 1);
+      if (d.reflective) {
+        img.setAlpha(0);
+        this.reflective.push(img);
+      }
+    }
+    if (this.mapDef.id === "ridge") {
+      // The relay tower, far away but always in view: the destination is visible before it is reached.
+      // Screen x = 400 - scrollX * 0.3: upper right of the first screen, drifting left as Laika climbs east.
+      s.add.image(400, 380, "tower_far").setOrigin(0.5, 1).setScrollFactor(0.3, 0.3).setDepth(DEPTH.spire).setAlpha(0.95);
+      const blink = s.add.image(400, 262, "glow").setScrollFactor(0.3, 0.3).setDepth(DEPTH.spire + 1).setTint(0xff5040).setBlendMode(Phaser.BlendModes.ADD).setScale(0.35);
+      if (!reducedMotion) s.tweens.add({ targets: blink, alpha: 0.15, duration: 700, yoyo: true, repeat: -1 });
+    }
+    // Atmosphere: drifting frost motes underground, wind-blown dust on the ridge.
+    const theme = this.mapDef.theme.particles;
+    if (theme && !reducedMotion) {
+      const dust = theme === "dust";
+      this.particles = s.add.particles(0, 0, dust ? "px_dust" : "px_frost", {
+        x: { min: 0, max: VIEW_W },
+        y: { min: 0, max: VIEW_H },
+        speedX: dust ? { min: 30, max: 70 } : { min: -4, max: 4 },
+        speedY: dust ? { min: -4, max: 6 } : { min: 3, max: 9 },
+        lifespan: dust ? 5000 : 7000,
+        alpha: { start: dust ? 0.6 : 0.5, end: 0 },
+        frequency: dust ? 160 : 260,
+        quantity: 1,
+      });
+      this.particles.setScrollFactor(0).setDepth(DEPTH.fx - 1);
+    }
+    for (let i = 0; i < 40; i++) this.prints.push(s.add.image(0, 0, "pawprint").setDepth(DEPTH.tiles + 1).setVisible(false));
+  }
+
+  /**
+   * Opens doors / extends bridges whose state changed. Returns the groups that changed, so the
+   * scene can add sound and camera beats. `animate` builds bridges tile by tile.
+   */
+  syncGroups(st: GameState, animate: boolean, onTile?: (c: number, r: number, i: number, n: number) => void): string[] {
+    const changed: string[] = [];
+    for (const [id, d] of Object.entries(this.mapDef.doors)) {
+      const open = d.when(st);
+      if (open === this.doorState.get(`door:${id}`)) continue;
+      this.doorState.set(`door:${id}`, open);
+      this.setTiles(d.tiles, open ? T.Empty : T.Shutter);
+      changed.push(`door:${id}`);
+    }
+    for (const [id, b] of Object.entries(this.mapDef.bridges)) {
+      const out = b.when(st);
+      if (out === this.doorState.get(`bridge:${id}`)) continue;
+      this.doorState.set(`bridge:${id}`, out);
+      changed.push(`bridge:${id}`);
+      if (!animate || !out) this.setTiles(b.tiles, out ? T.Bridge : T.Empty);
+      else
+        b.tiles.forEach(([c, r], i) =>
+          this.scene.time.delayedCall(200 + i * 110, () => {
+            this.setTiles([[c, r]], T.Bridge);
+            onTile?.(c, r, i, b.tiles.length);
+          }),
+        );
+    }
+    return changed;
   }
 }

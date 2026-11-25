@@ -1,5 +1,5 @@
 /** Data-driven item definitions. Add a new resource here and give it an icon in art/icons.ts. */
-export type ItemId = "metal" | "electronics" | "commsModule" | "sample" | "treat";
+export type ItemId = "metal" | "electronics" | "commsModule" | "sample" | "treat" | "coupling" | "relayCell" | "recording" | "roverPart";
 
 export interface ItemDef {
   id: ItemId;
@@ -55,9 +55,41 @@ export const ITEMS: Record<ItemId, ItemDef> = {
     critical: false,
     alwaysShow: false,
   },
+  coupling: {
+    id: "coupling",
+    name: "Power Coupling",
+    short: "Coupling",
+    blurb: "A chunky connector. The junction needs one!",
+    critical: true,
+    alwaysShow: false,
+  },
+  relayCell: {
+    id: "relayCell",
+    name: "Relay Power Cell",
+    short: "Relay Cell",
+    blurb: "Still charged. It belongs to the Echo Ridge relays.",
+    critical: true,
+    alwaysShow: false,
+  },
+  recording: {
+    id: "recording",
+    name: "Research Recording",
+    short: "Recordings",
+    blurb: "A crew member's voice, saved for later.",
+    critical: false,
+    alwaysShow: false,
+  },
+  roverPart: {
+    id: "roverPart",
+    name: "Rover R-2 Part",
+    short: "R-2 Parts",
+    blurb: "A piece of the lost rover. One day she could roll again.",
+    critical: false,
+    alwaysShow: false,
+  },
 };
 
-export const ITEM_ORDER: ItemId[] = ["commsModule", "metal", "electronics", "sample", "treat"];
+export const ITEM_ORDER: ItemId[] = ["commsModule", "coupling", "relayCell", "metal", "electronics", "sample", "treat", "recording", "roverPart"];
 
 /** Costs are data, so balancing never touches code. */
 export type Cost = Partial<Record<ItemId, number>>;

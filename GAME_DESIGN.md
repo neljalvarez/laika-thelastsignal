@@ -1,4 +1,4 @@
-# Game Design — LAIKA: THE LAST SIGNAL (Phases 1–2)
+# Game Design — LAIKA: THE LAST SIGNAL (Phases 1–3)
 
 ## Pitch
 
@@ -94,6 +94,132 @@ echo sensor (bark at it).
   screen edge points the way. Any progress resets the level. Hints can be turned off in Settings; the **?** button
   asks for one directly.
 - **Struggle detection**: four jumps in the same spot within 25 s offers a tip once (and Easy Jumps at the crate).
+
+## The expanded world (Phase 3)
+
+Loop: **explore → notice something unusual → investigate → discover → solve → unlock → explore further.**
+
+### Regions and how they connect
+
+Three handcrafted maps hold five numbered regions. Only the map Laika is in is built and rendered.
+
+```
+                 [05 ECHO RIDGE] ---- cable car (shortcut, opens after Mission 03) -----.
+                        | North Access hatch (opens after Mission 02)                    |
+   [ship][01 LANDING OUTPOST] ===== [02 CRIMSON CANYON] ===== [03 ARES STATION] <--------'
+          ^ survey lift (shortcut, opens in Mission 02)            | freight lift (opens after the relay logs)
+          '------------ [04 FROZEN DEPTHS: lift hall ... survey entrance] <----'
+```
+
+The surface map runs west to east; the Frozen Depths lie *under* the plain between the station and the outpost,
+so the survey lift really does come up beside the outpost workstation. Echo Ridge rises north-east of the station,
+and its tower is visible on the ridge's skyline from the first screen.
+
+| Region | Identity | What is new there |
+| --- | --- | --- |
+| 01 Landing Outpost | Home base, warm dusk, the ship | Survey lift arrival; analysing the relay cell at the receiver |
+| 02 Crimson Canyon | Introductory traversal | Unchanged (Phase 2 pit, tunnel and signs kept) |
+| 03 Ares Station | Was the Mission 01 ending; now the hub | Relay logs, freight lift down, cable car arrival |
+| 04 Frozen Depths | Dark blue and purple caves, deep red rock, pale cyan water ice, abandoned survey lab | Darkness and light, the Headlamp, three puzzles, a service tunnel |
+| 05 Echo Ridge | Tall, wind-scoured, warmer horizon, diagonal strata, antenna gear | Vertical climbing, relays, the tower, Thruster Boots routes |
+
+### Mission 02: Beneath the Red
+
+| # | Step (objective line names the region first) | Notes |
+| --- | --- | --- |
+| 1 | Ares Station: check the relay logs at the signal console | Reveals the signal was *relayed* by the Echo Ridge tower; its power cell was stored underground. Freight lift unlocks. |
+| 2 | Ride the freight lift down | Region card: REGION 04 Frozen Depths |
+| 3 | Fix the survey lamp by the entrance | Gains the **Headlamp** |
+| 4 | Follow the shining markers to the light sensor | **Puzzle A** |
+| 5 | Find the junction, sniff out the power coupling, install it | **Puzzle B** |
+| 6 | Run the core drill in the water-ice chamber | **Puzzle C**: water-ice sample + relay cell; an optional science card |
+| 7 | Start the survey lift | **Shortcut 1**: lift hall ↔ Landing Outpost |
+| 8 | Analyse the relay cell at the outpost receiver | Unseals the North Access: the route to Echo Ridge |
+
+### Mission 03: Echoes Above
+
+| # | Step | Notes |
+| --- | --- | --- |
+| 1 | Take the service tunnel to the North Access | Region card: REGION 05 Echo Ridge |
+| 2 | Sweep the dust off Relay A △ | Tail sweep (Phase 1 verb, new use) |
+| 3 | Climb to Ridge Camp; install the relay cell in the junction | Switchback ledges, 2-tile steps only |
+| 4 | Align Relay B ○ on the antenna platform | Turn the dish until it matches its plaque |
+| 5 | Find Relay C □ by following its faint signal; align it | Hidden inside a boulder |
+| 6 | Climb the relay tower; trace the signal | The tower door opens when all three relays report in |
+| 7 | Start the cable car | **Shortcut 2**: tower ↔ Ares Station. Mission 03 complete |
+
+The final transmission confirms the source is still 1,200 km north, on the same 88-minute window, and is *older
+than the station*. A faint voice says "...we waited where the lights go north... keep following...". Nothing is
+resolved: the sender, the reason and Laika's past stay open. Mission 01's completion card and statistics remain;
+the adventure simply continues, and free exploration is always available afterwards.
+
+### Environmental puzzles
+
+| Puzzle | Where | How it works | Why it is fair |
+| --- | --- | --- | --- |
+| A. Light the way | Dark observation chamber | Reflective arrows only shine in the Headlamp's beam and point along the lower walkway to a light sensor. Shining the beam on the sensor opens a shutter. | Paths and collision edges stay faintly visible without the lamp (never a black screen); the arrows add direction, they do not hide the floor. "Brighter caves" lightens everything further. |
+| B. Restore the research circuit | Power junction | Battery bank → broken junction → lights, ice-chamber door, survey lift, service hatch. A crew note says the spare coupling is "in the frost by the door"; Sniff finds it. Installing it sends power visibly along the cables, lamp by lamp. | Every link has a visible state (dark/lit, symbols, a status screen in words). Nothing to guess. |
+| C. The frozen survey chamber | Water-ice chamber | The core drill needs the circuit. Running it yields a water-ice sample and the relay cell. An optional card explains why water ice matters. | One action once powered; the science is optional and never blocks. |
+| D. Align the relay network | Echo Ridge | Three relays, each with a symbol (△ ○ □) and a painted plaque showing the direction its dish must face. Relay A only needs sweeping; B and C turn one step per press and wrap around. The junction screen lists each relay with symbol, name and OK / not OK. | Physical visits, no menu; symbols and words, not colour alone. Any order works. Half-turned dishes keep their direction across saves. |
+| E. Follow the strongest signal | Echo Ridge cliff | The Phase 2 scanner, re-used: sniffing near the cliff tracks Relay C's faint radio signal (weak / strong / located, warmer / colder) to a loose rock in a boulder. The buried-item scanner is unchanged. | Direction and distance are shown visually; hearing is never needed. |
+| F. Bark and response (optional) | Scenic overlook | Barking near the acoustic sensor sends Laika's bark over her **suit radio**; the sensor answers and unfolds a small bridge to a cache. The card says why: Mars' air barely carries sound. | Optional; visual + caption feedback. |
+
+### The Headlamp
+
+Found on a crate beside the freight lift; one interaction repairs it. From then on it is always on: a small aura
+around Laika plus a beam in the direction she faces. It lights the caves, makes reflective survey markers shine,
+catches glints on equipment, reveals a reflective X on a false wall (a secret), and triggers light sensors. It is
+saved as an ability (`abilities.headlamp`) and shown as a LAMP chip in the HUD next to SCAN and BOOTS, which is
+the "contextual ability" strip future gadgets will join. Without it, the darkness never fully hides the route.
+
+### Thruster Boots, used for real
+
+The boots (built at the outpost workstation since Phase 1) now open alternate and optional routes: the Frozen
+Depths ice shelf (R-2's antenna), Echo Ridge's high ledges (olivine sample, hidden weather station) and a quicker
+way to the overlook cache. The first time Laika meets such an obstacle a one-line reminder appears. The mandatory
+route never needs them (tested), and a salvage locker in the Frozen Depths gives enough parts to build them, so
+no save can be stuck without boots.
+
+### World map
+
+Opened with **M** (or Tab), the ▦ HUD button, gamepad Back, or from Pause. It looks like a survey journal: the
+current region, discovered regions and sections, connections (dashed while locked, green once a shortcut opens,
+"?" while unexplored), visited checkpoints, known landmarks, Laika's position and the current mission
+destination, with a legend. Sections appear as Laika walks into them; landmarks once she can see them. Secret
+rooms are never drawn until she has been inside, and nothing reveals an undiscovered region.
+
+### Optional discoveries (new in Phase 3)
+
+| Discovery | Region | Placement rationale (what it rewards) |
+| --- | --- | --- |
+| Golden Treat, hidden alcove | Frozen Depths | **Headlamp**: a reflective X on a rock wall is only visible in the beam; the wall is false. |
+| Survey recorder (research recording) | Frozen Depths | **An apparently unimportant passage**: the chamber's lower floor, found with Sniff. |
+| Clay-rich mudstone (sample) | Frozen Depths | **Sniff** in the ice chamber; ties to Curiosity's clay finds. |
+| R-2's lost antenna (rover part) | Frozen Depths | **Returning with an ability**: an ice shelf only Thruster Boots reach. |
+| R-2's lost wheel (rover part) | Echo Ridge | **Environmental storytelling + Sniff**: buried where the rover tracks stop. |
+| Olivine sand (sample) | Echo Ridge | **Thruster Boots**: the high-ledge route. |
+| Hidden weather station (log) | Echo Ridge | **Thruster Boots** + **looking up**: on top of a rock pillar. |
+| Crew recording, habitat ruin | Echo Ridge | **Looking behind terrain**: a rockfall at Ridge Camp is a false wall. |
+| Golden Treat, overlook cache | Echo Ridge | **Bark** at the acoustic sensor (or boots). |
+
+There are no random rewards and no grinding. The journal on the completion card counts samples, Golden Treats,
+research recordings and rover parts across the whole world.
+
+### Atmosphere and storytelling
+
+Frozen Depths: cool palette, darkness with warm crew lamps and failing survey lights, frost motes, quiet mechanical
+ambience with equipment hum. Echo Ridge: wide layered mountains, warm horizon, wind-blown dust, a blinking tower
+light on the skyline, wind ambience. Ambience cross-fades between maps; reduced motion stops the blinking and
+drifting. Stories are told by objects: rover tracks that stop at an abandoned hut, a crew lamp left warm in a
+dark room, a half-repaired junction, sample racks, short optional logs. Information the mission needs is always
+repeated in the objective line, so missing a log never blocks anyone.
+
+### Accessibility in the new regions
+
+Brighter caves (setting), Easy Jumps offered after repeated failed jumps on the ridge, captions for lifts, hatches
+and relay responses, puzzle states shown with symbols and words, hints that first name the region and point to
+the right lift or gate when the target is on another map, region-entrance and pre-climb checkpoints, and no
+timing in any mandatory puzzle.
 
 ## World layout (tiles are 16 px; the world is 240 × 34 tiles)
 

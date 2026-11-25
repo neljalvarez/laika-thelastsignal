@@ -34,6 +34,8 @@ export class InputManager {
   /** When set, the next key press is captured for remapping instead of played. */
   private capture: ((code: string) => void) | null = null;
   onPause: (() => void) | null = null;
+  /** Phase 3: open / close the world map (M, Tab, gamepad Back/Select). */
+  onMap: (() => void) | null = null;
   onAnyInput: (() => void) | null = null;
   /** Fired when the player switches between keyboard, touch and gamepad (prompts re-render). */
   onDeviceChange: ((d: Device) => void) | null = null;
@@ -93,6 +95,11 @@ export class InputManager {
     const action = this.codeToAction.get(e.code);
     if (action === "pause") {
       if (!e.repeat) this.onPause?.();
+      e.preventDefault();
+      return;
+    }
+    if (action === "map") {
+      if (!e.repeat) this.onMap?.();
       e.preventDefault();
       return;
     }
@@ -159,6 +166,7 @@ export class InputManager {
     if (edge(3)) this.latched.add("sniff");
     if (edge(4)) this.latched.add("bark");
     if (edge(9)) this.onPause?.();
+    if (edge(8)) this.onMap?.();
     if (now.some((x, i) => x && !this.padPrev[i])) this.onAnyInput?.();
     this.padPrev = now;
     return res;

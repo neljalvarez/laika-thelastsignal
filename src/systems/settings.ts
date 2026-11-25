@@ -2,8 +2,8 @@
 import { SETTINGS_KEY } from "../config/constants";
 import type { KeyValueStore } from "./save";
 
-export type Action = "left" | "right" | "jump" | "interact" | "sniff" | "sprint" | "bark" | "pause";
-export const REMAPPABLE: Action[] = ["left", "right", "jump", "interact", "sniff", "sprint", "bark"];
+export type Action = "left" | "right" | "jump" | "interact" | "sniff" | "sprint" | "bark" | "map" | "pause";
+export const REMAPPABLE: Action[] = ["left", "right", "jump", "interact", "sniff", "sprint", "bark", "map"];
 
 export const ACTION_LABELS: Record<Action, string> = {
   left: "Move left",
@@ -13,6 +13,7 @@ export const ACTION_LABELS: Record<Action, string> = {
   sniff: "Sniff (scanner)",
   sprint: "Sprint",
   bark: "Bark (optional)",
+  map: "World map",
   pause: "Pause",
 };
 
@@ -25,6 +26,7 @@ export const DEFAULT_BINDINGS: Record<Action, string> = {
   sniff: "KeyF",
   sprint: "ShiftLeft",
   bark: "KeyB",
+  map: "KeyM",
   pause: "Escape",
 };
 
@@ -36,6 +38,7 @@ export const ALT_BINDINGS: Record<Action, string[]> = {
   sniff: [],
   sprint: ["ShiftRight"],
   bark: [],
+  map: ["Tab"],
   pause: ["KeyP"],
 };
 
@@ -53,6 +56,8 @@ export interface Settings {
   textSpeed: "normal" | "slow" | "instant";
   /** Short on-screen captions for important sounds (bark, scanner, machines). */
   captions: boolean;
+  /** Phase 3: lighter darkness in caves (the Frozen Depths stay readable without the Headlamp). */
+  brightCaves: boolean;
   bindings: Record<Action, string>;
 }
 
@@ -69,6 +74,7 @@ export function defaultSettings(prefersReducedMotion = false): Settings {
     touchControls: "auto",
     textSpeed: "normal",
     captions: true,
+    brightCaves: false,
     bindings: { ...DEFAULT_BINDINGS },
   };
 }
@@ -98,6 +104,7 @@ export function parseSettings(text: string | null, prefersReducedMotion = false)
     touchControls: ["auto", "on", "off"].includes(raw.touchControls as string) ? (raw.touchControls as Settings["touchControls"]) : d.touchControls,
     textSpeed: ["normal", "slow", "instant"].includes(raw.textSpeed as string) ? (raw.textSpeed as Settings["textSpeed"]) : d.textSpeed,
     captions: typeof raw.captions === "boolean" ? raw.captions : d.captions,
+    brightCaves: typeof raw.brightCaves === "boolean" ? raw.brightCaves : d.brightCaves,
     bindings: { ...DEFAULT_BINDINGS },
   };
   if (typeof raw.bindings === "object" && raw.bindings !== null) {

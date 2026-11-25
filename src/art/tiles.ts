@@ -11,12 +11,14 @@ import { makeCanvas, Painter, rng } from "./painter";
 
 export const TS = 16;
 export const TILESET_COLS = 16;
-export const TILESET_ROWS = 10;
+export const TILESET_ROWS = 14;
 
 // Row layout of the tileset image.
-const ROW = { regolith: 0, rock: 1, hull: 2, special: 3, back: 4, alts: 5, regolithDeep: 6, rockDeep: 7, cave: 8 };
+const ROW = { regolith: 0, rock: 1, hull: 2, special: 3, back: 4, alts: 5, regolithDeep: 6, rockDeep: 7, cave: 8, frost: 9, ice: 10, ridge: 11, alts2: 12, special2: 13 };
 
 export const SPECIAL = { crate: 0, door: 1, ledgeL: 2, ledgeM: 3, ledgeR: 4, scaffoldL: 5, scaffoldM: 6, scaffoldR: 7, bridge: 8, stationDoor: 9, floorHatch: 10 };
+/** Phase 3 specials (second special row): ice shelves, the powered shutter, and new back walls. */
+export const SPECIAL2 = { iceLedgeL: 0, iceLedgeM: 1, iceLedgeR: 2, shutter: 3 };
 
 export function tileIndex(row: number, col: number): number {
   return row * TILESET_COLS + col;
@@ -35,10 +37,22 @@ export function terrainIndex(t: T, mask: number, depth: number, alt: number): nu
     return mask === 0 ? tileIndex(ROW.alts, 3 + (alt % 3)) : tileIndex(ROW.rock, mask);
   }
   if (t === T.Cave) return tileIndex(ROW.cave, mask);
+  if (t === T.FrostRock) {
+    if (mask === 0) return tileIndex(ROW.alts2, (depth >= 2 ? 9 : 0) + (alt % 3));
+    return tileIndex(ROW.frost, mask);
+  }
+  if (t === T.Ice) return mask === 0 ? tileIndex(ROW.alts2, 3 + (alt % 3)) : tileIndex(ROW.ice, mask);
+  if (t === T.RidgeRock) {
+    if (mask === 0) return tileIndex(ROW.alts2, (depth >= 2 ? 12 : 6) + (alt % 3));
+    return tileIndex(ROW.ridge, mask);
+  }
   return mask === 0 ? tileIndex(ROW.alts, 6 + (alt % 3)) : tileIndex(ROW.hull, mask);
 }
 
 export function backIndex(b: B, alt: number): number {
+  if (b === B.Frost) return tileIndex(ROW.special2, 4 + (alt % 4));
+  if (b === B.Lab) return tileIndex(ROW.special2, 8 + (alt % 4));
+  if (b === B.Ridge) return tileIndex(ROW.special2, 12 + (alt % 4));
   if (b === B.Hull) return tileIndex(ROW.back, alt % 4);
   if (b === B.Cave) return tileIndex(ROW.back, 4 + (alt % 4));
   return tileIndex(ROW.back, 8 + (alt % 4));
@@ -46,6 +60,10 @@ export function backIndex(b: B, alt: number): number {
 
 export function specialIndex(name: keyof typeof SPECIAL): number {
   return tileIndex(ROW.special, SPECIAL[name]);
+}
+
+export function special2Index(name: keyof typeof SPECIAL2): number {
+  return tileIndex(ROW.special2, SPECIAL2[name]);
 }
 
 interface Earth {
@@ -57,6 +75,8 @@ interface Earth {
   speck: string;
   edge: string;
   strata?: string;
+  /** Phase 3: strata drawn on a diagonal (ridge rock), and an irregular, weathered top edge. */
+  tilt?: boolean;
 }
 
 const REGOLITH: Earth = { top: C.crustL, top2: C.crust, base: C.soil, light: C.soilL, dark: C.soilD, speck: C.pebble, edge: C.soilDD };
@@ -64,6 +84,12 @@ const REGOLITH_DEEP: Earth = { top: C.crust, top2: C.soilL, base: C.soilD, light
 const ROCK: Earth = { top: C.rockL, top2: C.strata, base: C.rock, light: C.strata, dark: C.rockD, speck: C.rockDD, edge: C.rockDD, strata: C.rockD };
 const ROCK_DEEP: Earth = { top: C.strata, top2: C.rock, base: C.rockD, light: C.rock, dark: C.rockDD, speck: "#3e141b", edge: "#3e141b", strata: C.rockDD };
 const CAVE: Earth = { top: C.caveL, top2: C.cave, base: C.cave, light: C.caveL, dark: C.caveD, speck: C.caveD, edge: C.caveD };
+// Phase 3 materials. Frost rock: desaturated blue-violet with rusty red flecks (exposed Mars rock).
+const FROST: Earth = { top: "#8fa3c8", top2: "#5d6a92", base: "#3b3f63", light: "#4c5279", dark: "#2c2e4c", speck: "#7a3a3a", edge: "#1f2038" };
+const FROST_DEEP: Earth = { top: "#5d6a92", top2: "#4c5279", base: "#2f3254", light: "#3b3f63", dark: "#23243f", speck: "#5e2c30", edge: "#191a30" };
+// Ridge rock: warmer and paler than the canyon, with tilted strata instead of flat bands.
+const RIDGE: Earth = { top: "#e2a07a", top2: "#c97a5a", base: "#a85846", light: "#bd6b53", dark: "#86433a", speck: "#6a332d", edge: "#5a2a27", strata: "#93493d", tilt: true };
+const RIDGE_DEEP: Earth = { top: "#bd6b53", top2: "#a85846", base: "#8a453a", light: "#9b4f42", dark: "#6e3630", speck: "#552824", edge: "#4a2320", strata: "#7a3c33", tilt: true };
 
 function earthTile(p: Painter, ox: number, oy: number, e: Earth, mask: number, seed: number): void {
   const r = rng(seed);
@@ -74,7 +100,20 @@ function earthTile(p: Painter, ox: number, oy: number, e: Earth, mask: number, s
     const y = Math.floor(r() * TS);
     p.px(ox + x, oy + y, r() < 0.5 ? e.light : e.dark);
   }
-  if (e.strata) {
+  if (e.strata && e.tilt) {
+    // Tilted layers that continue across neighbouring tiles (period 8 px on the diagonal).
+    for (let x = 0; x < TS; x++)
+      for (let y = 0; y < TS; y++) if ((x + 2 * y) % 16 === 0 && r() < 0.8) p.px(ox + x, oy + y, e.strata);
+    // Weathering cracks.
+    if (r() < 0.5) {
+      let cx = 3 + Math.floor(r() * 10);
+      for (let y = 4 + Math.floor(r() * 4); y < TS - 2; y++) {
+        p.px(ox + cx, oy + y, e.edge);
+        if (r() < 0.4) cx += r() < 0.5 ? -1 : 1;
+        if (cx < 1 || cx > 14) break;
+      }
+    }
+  } else if (e.strata) {
     // Sedimentary layers: horizontal bands broken into dashes.
     for (const y of [5, 11]) {
       for (let x = 0; x < TS; x++) if (r() < 0.75) p.px(ox + x, oy + y, e.strata);
@@ -90,7 +129,16 @@ function earthTile(p: Painter, ox: number, oy: number, e: Earth, mask: number, s
   const right = (mask & 2) !== 0;
   const bottom = (mask & 4) !== 0;
   const left = (mask & 8) !== 0;
-  if (top) {
+  if (top && e.tilt) {
+    // Weathered cap: a ragged crest with chipped notches (no straight brick lines).
+    for (let x = 0; x < TS; x++) {
+      const h = r() < 0.18 ? 1 : 0;
+      p.rect(ox + x, oy, 1, h, "rgba(0,0,0,0)");
+      p.px(ox + x, oy + h, e.top);
+      p.rect(ox + x, oy + h + 1, 1, 2, e.top2);
+      if (r() < 0.45) p.px(ox + x, oy + h + 3, e.top2);
+    }
+  } else if (top) {
     p.rect(ox, oy, TS, 1, e.top);
     p.rect(ox, oy + 1, TS, 2, e.top2);
     for (let x = 0; x < TS; x++) {
@@ -227,6 +275,77 @@ function backTile(p: Painter, ox: number, oy: number, kind: "hull" | "cave" | "s
   }
 }
 
+/** Water ice: pale cyan, with long glints, a few cracks and frosted edges. Not glowing: just bright. */
+function iceTile(p: Painter, ox: number, oy: number, mask: number, seed: number): void {
+  const r = rng(seed);
+  p.rect(ox, oy, TS, TS, "#8fc9dc");
+  p.dither(ox, oy + 8, TS, 8, "#8fc9dc", "#79b3cb", 0.35);
+  for (let i = 0; i < 3; i++) {
+    const x0 = Math.floor(r() * 12);
+    const y0 = Math.floor(r() * 14);
+    for (let k = 0; k < 5; k++) p.px(ox + x0 + k, oy + y0 + Math.floor(k / 2), "#d9f1f7");
+  }
+  if (r() < 0.6) {
+    let cx = 2 + Math.floor(r() * 12);
+    for (let y = 2; y < 14; y++) {
+      p.px(ox + cx, oy + y, "#5b93ad");
+      if (r() < 0.35) cx += r() < 0.5 ? -1 : 1;
+      cx = Math.max(1, Math.min(14, cx));
+    }
+  }
+  for (let i = 0; i < 6; i++) p.px(ox + Math.floor(r() * TS), oy + Math.floor(r() * TS), "#b8e3ee");
+  if (mask & 1) p.rect(ox, oy, TS, 1, "#f2fbfd").rect(ox, oy + 1, TS, 1, "#c6eaf3");
+  if (mask & 8) p.rect(ox, oy, 1, TS, "#5b93ad");
+  if (mask & 2) p.rect(ox + TS - 1, oy, 1, TS, "#4b7f98");
+  if (mask & 4) {
+    p.rect(ox, oy + TS - 1, TS, 1, "#4b7f98");
+    // Small icicles under exposed ice.
+    for (let x = 1; x < TS; x += 4 + Math.floor(r() * 3)) p.rect(ox + x, oy + TS - 2, 1, 2, "#d9f1f7");
+  }
+}
+
+function iceLedge(p: Painter, ox: number, oy: number, end: "L" | "M" | "R", seed: number): void {
+  const r = rng(seed);
+  const x0 = end === "L" ? 2 : 0;
+  const x1 = end === "R" ? 13 : 15;
+  p.rect(ox + x0, oy, x1 - x0 + 1, 4, "#9fd3e3");
+  p.rect(ox + x0, oy, x1 - x0 + 1, 1, "#f2fbfd");
+  p.rect(ox + x0, oy + 4, x1 - x0 + 1, 1, "#5b93ad");
+  for (let x = x0; x <= x1; x++) {
+    if (r() < 0.3) p.rect(ox + x, oy + 5, 1, 1 + Math.floor(r() * 3), "#c6eaf3");
+  }
+}
+
+/** Powered shutter: chevron stripes and a status light (it opens, never needs force). */
+function shutter(p: Painter, ox: number, oy: number): void {
+  p.rect(ox, oy, TS, TS, "#2c3347");
+  p.rect(ox + 2, oy, 12, TS, "#4a5573");
+  for (let y = 0; y < TS; y += 3) p.rect(ox + 2, oy + y, 12, 1, "#3a4460");
+  p.rect(ox + 2, oy + 6, 12, 3, "#f2ca76").rect(ox + 4, oy + 7, 2, 1, "#2a1a22").rect(ox + 9, oy + 7, 2, 1, "#2a1a22");
+  p.rect(ox + 7, oy + 12, 2, 2, "#5fb7f0");
+}
+
+function region2Back(p: Painter, ox: number, oy: number, kind: "frost" | "lab" | "ridge", v: number): void {
+  const r = rng(3000 + v * 17 + (kind === "lab" ? 100 : kind === "ridge" ? 200 : 0));
+  if (kind === "frost") {
+    p.rect(ox, oy, TS, TS, "#23264a");
+    for (let i = 0; i < 16; i++) p.px(ox + Math.floor(r() * TS), oy + Math.floor(r() * TS), r() < 0.5 ? "#2d3159" : "#1b1d3a");
+    if (v === 1) p.rect(ox + 2, oy + 9, 6, 1, "#1b1d3a").rect(ox + 8, oy + 10, 5, 1, "#1b1d3a");
+    if (v === 2) p.px(ox + 11, oy + 4, "#5e2c30").px(ox + 12, oy + 4, "#5e2c30").px(ox + 4, oy + 12, "#3d6a80");
+  } else if (kind === "lab") {
+    p.rect(ox, oy, TS, TS, "#2b3146");
+    p.rect(ox, oy, TS, 1, "#202536").rect(ox, oy, 1, TS, "#202536");
+    p.rect(ox + 1, oy + 1, TS - 1, 1, "#363d55");
+    if (v === 1) p.rect(ox + 3, oy + 5, 10, 5, "#232838").rect(ox + 4, oy + 6, 3, 1, "#3d6a80");
+    if (v === 2) p.rect(ox + 1, oy + 8, TS - 1, 2, "#33405a");
+    if (v === 3) p.rect(ox + 7, oy, 2, TS, "#262b3d").px(ox + 12, oy + 12, "#5fb7f0");
+  } else {
+    p.rect(ox, oy, TS, TS, "#6a3330");
+    for (let x = 0; x < TS; x++) for (let y = 0; y < TS; y++) if ((x + 2 * y + v * 4) % 16 === 0) p.px(ox + x, oy + y, "#5a2a27");
+    for (let i = 0; i < 10; i++) p.px(ox + Math.floor(r() * TS), oy + Math.floor(r() * TS), r() < 0.5 ? "#763a35" : "#5a2a27");
+  }
+}
+
 export function drawTileset(): HTMLCanvasElement {
   const { canvas, ctx } = makeCanvas(TILESET_COLS * TS, TILESET_ROWS * TS);
   const p = new Painter(ctx);
@@ -262,6 +381,30 @@ export function drawTileset(): HTMLCanvasElement {
     backTile(p, v * TS, ROW.back * TS, "hull", v);
     backTile(p, (4 + v) * TS, ROW.back * TS, "cave", v);
     backTile(p, (8 + v) * TS, ROW.back * TS, "station", v);
+  }
+  // ---- Phase 3 rows ----
+  for (let m = 0; m < 16; m++) {
+    earthTile(p, m * TS, ROW.frost * TS, FROST, m, 1100 + m);
+    iceTile(p, m * TS, ROW.ice * TS, m, 1200 + m);
+    earthTile(p, m * TS, ROW.ridge * TS, RIDGE, m, 1300 + m);
+  }
+  // Interior alternates: frost 0-2, ice 3-5, ridge 6-8, deep frost 9-11, deep ridge 12-14.
+  for (let a = 0; a < 3; a++) {
+    earthTile(p, a * TS, ROW.alts2 * TS, FROST, 0, 1400 + a);
+    iceTile(p, (3 + a) * TS, ROW.alts2 * TS, 0, 1410 + a);
+    earthTile(p, (6 + a) * TS, ROW.alts2 * TS, RIDGE, 0, 1420 + a);
+    earthTile(p, (9 + a) * TS, ROW.alts2 * TS, FROST_DEEP, 0, 1430 + a);
+    earthTile(p, (12 + a) * TS, ROW.alts2 * TS, RIDGE_DEEP, 0, 1440 + a);
+  }
+  const s2 = ROW.special2 * TS;
+  iceLedge(p, SPECIAL2.iceLedgeL * TS, s2, "L", 1501);
+  iceLedge(p, SPECIAL2.iceLedgeM * TS, s2, "M", 1502);
+  iceLedge(p, SPECIAL2.iceLedgeR * TS, s2, "R", 1503);
+  shutter(p, SPECIAL2.shutter * TS, s2);
+  for (let v = 0; v < 4; v++) {
+    region2Back(p, (4 + v) * TS, s2, "frost", v);
+    region2Back(p, (8 + v) * TS, s2, "lab", v);
+    region2Back(p, (12 + v) * TS, s2, "ridge", v);
   }
   return canvas;
 }

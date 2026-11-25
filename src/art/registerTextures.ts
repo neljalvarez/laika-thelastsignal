@@ -7,6 +7,7 @@ import { LAIKA_ANIMS, LAIKA_H, LAIKA_W, laikaFrames } from "./laika";
 import { LAIKA_PAL } from "./palette";
 import { makeCanvas, Painter } from "./painter";
 import { PROPS } from "./props";
+import { drawDepthsBack, drawRidgeBack, REGION_PROPS } from "./regionProps";
 import { drawTileset } from "./tiles";
 
 function addCanvas(scene: Phaser.Scene, key: string, canvas: HTMLCanvasElement): Phaser.Textures.CanvasTexture | null {
@@ -31,7 +32,11 @@ export function registerTextures(scene: Phaser.Scene): void {
   addCanvas(scene, "bg_near", drawNear());
   laikaSheet(scene, "laika", false);
   laikaSheet(scene, "laika_boots", true);
-  for (const [key, def] of Object.entries(PROPS)) {
+  for (const layer of ["sky", "far", "mid", "near"] as const) {
+    addCanvas(scene, `bgd_${layer}`, drawDepthsBack(layer));
+    addCanvas(scene, `bgr_${layer}`, drawRidgeBack(layer));
+  }
+  for (const [key, def] of Object.entries({ ...PROPS, ...REGION_PROPS })) {
     const { canvas, ctx } = makeCanvas(def.w, def.h);
     def.draw(new Painter(ctx));
     addCanvas(scene, key, canvas);

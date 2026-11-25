@@ -71,6 +71,8 @@ export class UI {
   onPauseButton: (() => void) | null = null;
   onSettingsApplied: (() => void) | null = null;
   onHintButton: (() => void) | null = null;
+  onMapButton: (() => void) | null = null;
+  private abilitiesEl!: HTMLElement;
 
   constructor(
     root: HTMLElement,
@@ -92,7 +94,12 @@ export class UI {
     const pauseBtn = button("II", () => this.onPauseButton?.(), "hud-btn interactive");
     pauseBtn.title = "Pause";
     pauseBtn.setAttribute("aria-label", "Pause");
-    topRight.append(this.inventoryEl, hintBtn, pauseBtn);
+    const mapBtn = button("▦", () => this.onMapButton?.(), "hud-btn interactive");
+    mapBtn.title = "World map";
+    mapBtn.setAttribute("aria-label", "Open the world map");
+    // Phase 3: a small strip of the gadgets Laika has (room for future ones, no inventory screen).
+    this.abilitiesEl = el("div", "hud-abilities");
+    topRight.append(this.abilitiesEl, this.inventoryEl, mapBtn, hintBtn, pauseBtn);
     this.promptEl = el("div", "hud-prompt px-panel hidden");
     this.promptEl.setAttribute("aria-live", "polite");
     this.hud.append(this.objectiveEl, topRight, this.promptEl);
@@ -515,10 +522,13 @@ export class UI {
     onRestartTutorial?: () => void;
     onReplayTutorial?: () => void;
     onEndReplay?: () => void;
+    onMap?: () => void;
   }): void {
     const card = el("div", "menu-card px-panel");
     card.append(el("h2", "", opts.tutorial ? "Paused · Mission 00" : "Paused"));
-    card.append(button("▶ Resume", opts.onResume), button("Controls", opts.onControls, "px-btn secondary"), button("Settings", opts.onSettings, "px-btn secondary"));
+    card.append(button("▶ Resume", opts.onResume));
+    if (opts.onMap) card.append(button("World map", opts.onMap, "px-btn secondary"));
+    card.append(button("Controls", opts.onControls, "px-btn secondary"), button("Settings", opts.onSettings, "px-btn secondary"));
     if (opts.tutorial === "first") {
       card.append(button("Restart tutorial", opts.onRestartTutorial!, "px-btn secondary"), button("Skip tutorial", opts.onSkipTutorial!, "px-btn secondary"));
     } else if (opts.tutorial === "replay") {
@@ -527,7 +537,7 @@ export class UI {
       card.append(button("Return to last checkpoint", opts.onCheckpoint, "px-btn secondary"));
       if (opts.onReplayTutorial) card.append(button("Replay tutorial (Mission 00)", opts.onReplayTutorial, "px-btn secondary"));
     }
-    card.append(button("Restart demo", opts.onRestart, "px-btn secondary"), button("Save & quit to title", opts.onMenu, "px-btn secondary"));
+    card.append(button("Restart adventure", opts.onRestart, "px-btn secondary"), button("Save & quit to title", opts.onMenu, "px-btn secondary"));
     this.openScreen(card);
   }
 
@@ -546,6 +556,8 @@ export class UI {
     row("Sniff (scanner)", keyLabel(b.sniff), "SNIFF", "Ⓨ");
     row("Sprint", keyLabel(b.sprint), "RUN (toggle)", "Ⓑ / RB");
     row("Bark (optional)", keyLabel(b.bark), "BARK", "LB");
+    row("World map", `${keyLabel(b.map)} or Tab`, "▦ button", "Back / Select");
+    row("Headlamp", "Automatic underground", "Automatic", "Automatic");
     row("Pause", "Esc / P", "II", "Start");
     card.append(grid, el("p", "", "Change keys in Settings → Controls."), button("Back", onBack));
     this.openScreen(card);
@@ -579,7 +591,7 @@ export class UI {
       });
       grid.append(lab, input);
     };
-    const toggle = (label: string, key: "reducedMotion" | "hints" | "assistJumps" | "captions", help?: string) => {
+    const toggle = (label: string, key: "reducedMotion" | "hints" | "assistJumps" | "captions" | "brightCaves", help?: string) => {
       const id = `set-${key}`;
       const lab = el("label", "", label);
       lab.htmlFor = id;
@@ -632,6 +644,7 @@ export class UI {
     toggle("Hints", "hints", "Offer help when you seem stuck (the ? button always works)");
     toggle("Sound captions", "captions", "Show short text for important sounds");
     toggle("Easy jumps", "assistJumps", "Higher jumps, glide while holding Jump");
+    toggle("Brighter caves", "brightCaves", "Dark areas are easier to see");
     select("Touch controls", "touchControls", [
       ["auto", "Automatic"],
       ["on", "Always on"],
@@ -664,7 +677,7 @@ export class UI {
       grid.append(lab, kb);
     }
     card.append(grid);
-    card.append(el("p", "", "Arrow keys always move, ↑/W also jump, Enter also interacts. Gamepads: A jump, X interact, Y sniff, LB bark, B sprint, Start pause."));
+    card.append(el("p", "", "Arrow keys always move, ↑/W also jump, Enter also interacts, Tab also opens the map. Gamepads: A jump, X interact, Y sniff, LB bark, B sprint, Back map, Start pause."));
     const row = el("div", "row-buttons");
     row.append(
       button("Back", () => {
@@ -695,11 +708,40 @@ export class UI {
       el("li", "", `${stats.boots ? "[x]" : "[ ]"} Thruster Boots ${stats.boots ? "built" : "not built"}`),
       el("li", "", `Time: about ${stats.minutes} min`),
     );
-    card.append(ul, el("p", "", "Someone out there knows Laika's name..."), el("p", "", "To be continued."));
+    card.append(ul, el("p", "", "Someone out there knows Laika's name..."), el("p", "", "Mission 02 begins: check the signal console again."));
     const row = el("div", "row-buttons");
     row.append(button("Keep exploring", onExplore), button("Title screen", onMenu, "px-btn secondary"));
     card.append(row);
     this.openScreen(card);
+  }
+
+  /** Phase 3: end-of-mission card for the later missions (journal of discoveries). */
+  showStoryComplete(info: { title: string; subtitle: string; lines: string[]; minutes: number }, onExplore: () => void, onMenu: () => void): void {
+    const card = el("div", "menu-card px-panel complete-card");
+    card.append(el("div", "big", info.title), el("p", "", info.subtitle));
+    const ul = el("ul");
+    for (const l of info.lines) ul.append(el("li", "", l));
+    ul.append(el("li", "", `Time: about ${info.minutes} min`));
+    card.append(ul, el("p", "", "The signal is older than the station... and it knows her name."), el("p", "", "To be continued."));
+    const row = el("div", "row-buttons");
+    row.append(button("Keep exploring", onExplore), button("Title screen", onMenu, "px-btn secondary"));
+    card.append(row);
+    this.openScreen(card);
+  }
+
+  /** Gadget strip: one small chip per ability Laika has (text + symbol, never colour alone). */
+  setAbilities(a: { sniff: boolean; headlamp: boolean; thrusters: boolean }): void {
+    const chips: Array<[boolean, string, string]> = [
+      [a.sniff, "SCAN", "Scanner (Sniff)"],
+      [a.headlamp, "LAMP", "Headlamp"],
+      [a.thrusters, "BOOTS", "Thruster Boots"],
+    ];
+    this.abilitiesEl.replaceChildren(...chips.filter(([on]) => on).map(([, sym, name]) => {
+      const c = el("span", "ability-chip", sym);
+      c.title = name;
+      c.setAttribute("aria-label", name);
+      return c;
+    }));
   }
 
   fade(on: boolean): void {
@@ -809,6 +851,11 @@ export class UI {
     if (mode === "on") return true;
     if (mode === "off") return false;
     return window.matchMedia?.("(pointer: coarse)").matches || "ontouchstart" in window;
+  }
+
+  /** Full-screen menus (pause, map, confirm, completion) hide the touch controls so they never cover a menu button. */
+  setMenuOpen(on: boolean): void {
+    this.touchEl.classList.toggle("menu-open", on);
   }
 
   private hudOn = false;

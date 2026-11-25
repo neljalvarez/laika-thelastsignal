@@ -262,8 +262,11 @@ async def scenario_CD(p):
     await pg.get_by_text("Continue").click()
     await pg.wait_for_timeout(2500)
     st = await bot.S()
-    ok("Phase 1 save loads as v2", st["version"] == 2)
-    ok("inventory preserved", st["inventory"] == save["inventory"], str(st["inventory"]))
+    # Saves migrate step by step to the current format (v3 since Phase 3).
+    ok("Phase 1 save loads as the current version (v3)", st["version"] == 3)
+    # Every Phase 1 count is kept exactly; items added in later phases start at zero.
+    later = {k: v for k, v in st["inventory"].items() if k not in save["inventory"]}
+    ok("inventory preserved", all(st["inventory"][k] == v for k, v in save["inventory"].items()) and all(v == 0 for v in later.values()), str(st["inventory"]))
     ok("flags preserved", all(st["flags"][k] == v for k, v in save["flags"].items()))
     ok("abilities preserved + Bark", st["abilities"]["sniff"] and st["abilities"]["bark"])
     ok("tutorial not forced", st["tutorial"]["status"] == "skipped" and (await T(pg)) is None)
