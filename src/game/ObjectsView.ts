@@ -5,8 +5,11 @@
  */
 import Phaser from "phaser";
 import { INTERACT_RANGE, TILE } from "../config/constants";
-import { OBJECTS, objectPos, type WorldObject } from "../data/world";
+import { connectionFor } from "../data/regions/registry";
+import type { MapDef } from "../data/regions/types";
+import { objectPos, type WorldObject } from "../data/world";
 import type { Interaction } from "../systems/interactions";
+import { relayOnline } from "../systems/puzzles";
 import type { TutorialState } from "../systems/tutorial";
 import { isPowered, type GameState } from "../systems/state";
 import { DEPTH } from "./WorldView";
@@ -28,7 +31,29 @@ const REACH: Partial<Record<WorldObject["kind"], number>> = {
   beacon: 22,
   stationDoor: 30,
   hatch: 22,
+  transit: 26,
+  sampler: 24,
+  junction: 22,
+  commsJunction: 24,
+  relay: 24,
+  towerConsole: 22,
+  powerSource: 24,
 };
+
+/** Texture family for each transit object (+ "_on" / "_off"). */
+const TRANSIT_TEX: Record<string, string> = {
+  outpost_lift: "lift_top",
+  depths_lift: "lift_car",
+  station_lift: "freight_lift",
+  depths_freight: "freight_lift",
+  depths_north: "gate_panel",
+  ridge_hatch: "ridge_hatch",
+  ridge_cable: "cable_car",
+  station_cable: "cable_dock",
+};
+
+/** Machines whose lights / glints catch the headlamp beam in dark maps. */
+const GLINT_KINDS = new Set<WorldObject["kind"]>(["junction", "powerSource", "sampler", "lightSensor", "locker", "transit", "log", "sign"]);
 
 const LAMPS = [35, 57, 74, 82];
 const CABLE_FROM = 37 * TILE + 8;
@@ -50,14 +75,23 @@ export class ObjectsView {
   private highlightId: string | null = null;
   private fanTimer: Phaser.Time.TimerEvent | null = null;
   revealed = new Set<string>();
+  /** Phase 3: powered cable runs, by power group. */
+  private cables: Array<{ group: string; off: Phaser.GameObjects.TileSprite[]; on: Phaser.GameObjects.TileSprite[]; lengths: number[] }> = [];
+  private groupsShown = new Set<string>();
+  /** Points where machines catch the headlamp (for Lighting.addGlint). */
+  glintPoints: Array<{ x: number; y: number }> = [];
 
-  constructor(private scene: Phaser.Scene) {
+  constructor(
+    private scene: Phaser.Scene,
+    private mapDef: MapDef,
+  ) {
     const s = scene;
     this.marker = s.add.image(0, 0, "marker").setDepth(DEPTH.ui).setVisible(false);
     this.highlightGlow = s.add.image(0, 0, "glow").setDepth(DEPTH.fx).setBlendMode(Phaser.BlendModes.ADD).setTint(0xfff1a0).setAlpha(0).setScale(1.4);
     s.tweens.add({ targets: this.marker, y: "+=3", duration: 380, yoyo: true, repeat: -1, ease: "Sine.easeInOut" });
-    s.add.tileSprite(CABLE_FROM, 24 * TILE - 1, CABLE_TO - CABLE_FROM, 4, "cable_off").setOrigin(0, 1).setDepth(DEPTH.propsBack);
-    this.cableOn = s.add.tileSprite(CABLE_FROM, 24 * TILE - 1, 0, 4, "cable_on").setOrigin(0, 1).setDepth(DEPTH.propsBack);
+    const surface = mapDef.id === "surface";
+    if (surface) s.add.tileSprite(CABLE_FROM, 24 * TILE - 1, CABLE_TO - CABLE_FROM, 4, "cable_off").setOrigin(0, 1).setDepth(DEPTH.propsBack);
+    this.cableOn = s.add.tileSprite(CABLE_FROM, 24 * TILE - 1, 0, 4, "cable_on").setOrigin(0, 1).setDepth(DEPTH.propsBack).setVisible(surface);
     this.sparks = s.add.particles(0, 0, "px_spark", {
       speed: { min: 20, max: 70 },
       angle: { min: 200, max: 340 },
@@ -90,13 +124,14 @@ export class ObjectsView {
       emitting: false,
     });
     this.dirt.setDepth(DEPTH.fx);
-    for (const c of LAMPS) {
+    for (const c of surface ? LAMPS : []) {
       const x = c * TILE + 8;
       const post = s.add.image(x, 24 * TILE, "lamp_off").setOrigin(0.5, 1).setDepth(DEPTH.propsBack);
       const glow = s.add.image(x, 24 * TILE - 29, "glow").setDepth(DEPTH.fx).setTint(0xffd27a).setAlpha(0).setBlendMode(Phaser.BlendModes.ADD);
       this.lamps.push({ post, glow });
     }
-    for (const o of OBJECTS) this.create(o);
+    for (const o of mapDef.objects) this.create(o);
+    this.createCables();
     // Ambient: buried spots puff a little dust now and then (a subtle clue).
     s.time.addEvent({
       delay: 900,
@@ -130,6 +165,7 @@ export class ObjectsView {
         break;
       case "buried":
         v.sprite = img("mound", DEPTH.propsBack);
+        if (this.mapDef.id === "depths") v.sprite.setTint(0xa8c8ff); // frost-covered mound
         break;
       case "solarControl":
         v.sprite = img("solar_control_broken");
@@ -156,7 +192,7 @@ export class ObjectsView {
         v.sprite = img("workstation_off");
         break;
       case "sign":
-        v.sprite = img(o.id === "sign_outpost" ? "sign_outpost" : "sign_canyon", DEPTH.propsBack);
+        v.sprite = img(o.id === "sign_outpost" ? "sign_outpost" : o.id === "sign_depths" || o.id === "sign_service" ? "sign_lab" : o.id === "sign_ridge" ? "sign_relay" : "sign_canyon", DEPTH.propsBack);
         break;
       case "log":
         v.sprite = img("terminal_on", DEPTH.propsBack);
@@ -186,13 +222,48 @@ export class ObjectsView {
         v.sprite = img("training_machine_off", DEPTH.propsBack);
         break;
       case "echoSensor":
+      case "acousticSensor":
         v.sprite = img("echo_sensor_idle", DEPTH.propsBack);
+        break;
+      // ---- Phase 3 ----
+      case "transit":
+        v.sprite = img(`${TRANSIT_TEX[o.id] ?? "gate_panel"}_off`, DEPTH.propsBack);
+        break;
+      case "headlampKit":
+        v.sprite = img("lamp_kit_full", DEPTH.propsBack);
+        break;
+      case "lightSensor":
+        v.sprite = img("light_sensor_off", DEPTH.propsBack);
+        break;
+      case "powerSource":
+        v.sprite = img("battery_bank", DEPTH.propsBack);
+        break;
+      case "junction":
+        v.sprite = img("junction_broken", DEPTH.propsBack);
+        break;
+      case "sampler":
+        v.sprite = img("core_drill_off", DEPTH.propsBack);
+        break;
+      case "locker":
+        v.sprite = img("locker_closed", DEPTH.propsBack);
+        break;
+      case "relay":
+        v.sprite = img("relay_0", DEPTH.propsBack);
+        v.extra.push(s.add.image(x + 9, y - 44, "relay_off").setDepth(DEPTH.props));
+        v.extra.push(s.add.tileSprite(x, y - 27, 0, 2, "signal_dot").setOrigin(0, 0.5).setDepth(DEPTH.propsBack - 1).setVisible(false));
+        break;
+      case "commsJunction":
+        v.sprite = img("ridge_junction_off", DEPTH.propsBack);
+        break;
+      case "towerConsole":
+        v.sprite = img("tower_console_off", DEPTH.propsBack);
         break;
       case "hatch":
       case "stationDoor":
       case "secret":
         break;
     }
+    if (this.mapDef.theme.dark && GLINT_KINDS.has(o.kind)) this.glintPoints.push({ x: x + 5, y: y - (v.sprite?.height ?? 16) + 4 });
     this.views.set(o.id, v);
   }
 
@@ -242,9 +313,11 @@ export class ObjectsView {
           tex(st.flags.demoComplete ? "beacon_on" : "beacon_off");
           break;
         default:
+          this.syncRegionObject(v, st);
           break;
       }
     }
+    this.syncCables(st, false);
     if (powered && !this.poweredShown) this.showPower(false);
     if (st.flags.commsOnline) this.startReceiverBlink();
   }
@@ -532,5 +605,115 @@ export class ObjectsView {
   positionOf(id: string): { x: number; y: number } {
     const v = this.views.get(id);
     return v ? objectPos(v.o) : { x: 0, y: 0 };
+  }
+
+  // ---------------- Phase 3 ----------------
+
+  sparklesFor(id: string): void {
+    const v = this.views.get(id);
+    if (v?.sprite) this.sparkleAt(v.sprite.x, v.sprite.y - v.sprite.height + 8, 8);
+  }
+
+  /** Visual state of Phase 3 machines, derived from the save (cheap: call after every change). */
+  private syncRegionObject(v: View, st: GameState): void {
+    const { o } = v;
+    const tex = (k: string) => {
+      if (v.sprite && v.sprite.texture.key !== k) v.sprite.setTexture(k);
+    };
+    const circuit = st.flags.circuitRestored;
+    switch (o.kind) {
+      case "transit": {
+        const info = connectionFor(o.id);
+        const on = !!info && (info.c.open(st) || (info.c.activate?.side === info.side && info.c.activate.ready(st)));
+        tex(`${TRANSIT_TEX[o.id] ?? "gate_panel"}_${on ? "on" : "off"}`);
+        break;
+      }
+      case "headlampKit":
+        tex(st.abilities.headlamp ? "lamp_kit_empty" : "lamp_kit_full");
+        break;
+      case "lightSensor":
+        tex(st.flags.passageOpen ? "light_sensor_on" : "light_sensor_off");
+        break;
+      case "junction":
+        tex(circuit ? "junction_fixed" : "junction_broken");
+        break;
+      case "sampler":
+        tex(circuit ? "core_drill_on" : "core_drill_off");
+        break;
+      case "locker":
+        tex(st.flags.lockerOpened ? "locker_open" : "locker_closed");
+        break;
+      case "relay": {
+        const dusty = o.id === "relay_a" && !st.flags.relayASwept;
+        const aim = st.puzzles.relayAim[o.id] ?? 0;
+        tex(`relay_${dusty ? "dusty_" : ""}${aim}`);
+        const ok = relayOnline(st, o.id);
+        (v.extra[0] as Phaser.GameObjects.Image).setTexture(ok ? "relay_ok" : "relay_off");
+        // Signal beam along the dish's direction once the relay reports in.
+        const beam = v.extra[1] as Phaser.GameObjects.TileSprite;
+        const angles = [180, 225, 270, 315, 0];
+        beam.setVisible(ok && st.flags.cellInstalled).setAngle(angles[aim]).setSize(ok ? 46 : 0, 2);
+        break;
+      }
+      case "commsJunction":
+        tex(st.flags.cellInstalled ? "ridge_junction_on" : "ridge_junction_off");
+        break;
+      case "towerConsole":
+        tex(st.flags.relayNetworkOnline ? "tower_console_on" : "tower_console_off");
+        break;
+      default:
+        break;
+    }
+  }
+
+  private createCables(): void {
+    const s = this.scene;
+    for (const run of this.mapDef.cables) {
+      const entry = { group: run.group, off: [] as Phaser.GameObjects.TileSprite[], on: [] as Phaser.GameObjects.TileSprite[], lengths: [] as number[] };
+      for (let i = 0; i < run.points.length - 1; i++) {
+        const [c0, r0] = run.points[i];
+        const [c1, r1] = run.points[i + 1];
+        const x0 = Math.round(c0 * TILE);
+        const y0 = Math.round(r0 * TILE);
+        const len = Math.round(Math.hypot((c1 - c0) * TILE, (r1 - r0) * TILE));
+        const angle = (Math.atan2(r1 - r0, c1 - c0) * 180) / Math.PI;
+        const off = s.add.tileSprite(x0, y0, len, 4, "cable_off").setOrigin(0, 0.5).setAngle(angle).setDepth(DEPTH.propsBack - 1);
+        const on = s.add.tileSprite(x0, y0, 0, 4, "cable_on").setOrigin(0, 0.5).setAngle(angle).setDepth(DEPTH.propsBack - 1);
+        entry.off.push(off);
+        entry.on.push(on);
+        entry.lengths.push(len);
+      }
+      this.cables.push(entry);
+    }
+  }
+
+  /** Power groups currently on, from the state. */
+  static poweredGroups(st: GameState): Set<string> {
+    const g = new Set<string>();
+    if (st.flags.circuitRestored) g.add("circuit");
+    if (st.flags.relayNetworkOnline) g.add("network");
+    return g;
+  }
+
+  /** Shows powered cables; when animated, power visibly runs along each segment in order. */
+  syncCables(st: GameState, animated: boolean): void {
+    const on = ObjectsView.poweredGroups(st);
+    for (const group of on) {
+      if (this.groupsShown.has(group)) continue;
+      this.groupsShown.add(group);
+      let delay = 0;
+      for (const run of this.cables.filter((c) => c.group === group)) {
+        run.on.forEach((seg, i) => {
+          const len = run.lengths[i];
+          if (!animated) {
+            seg.setSize(len, 4);
+            return;
+          }
+          const dur = Math.max(120, len * 3);
+          this.scene.tweens.addCounter({ from: 0, to: len, delay, duration: dur, onUpdate: (tw) => seg.setSize(Math.round(tw.getValue() ?? 0), 4) });
+          delay += dur;
+        });
+      }
+    }
   }
 }

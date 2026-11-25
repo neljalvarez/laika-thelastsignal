@@ -11,22 +11,12 @@ import { svc, updateSettings } from "../app";
 import { ITEMS } from "../data/items";
 import { TIPS, TRANSMISSIONS } from "../data/story";
 import { stageDef, type PromptContext, type TutorialStageId } from "../data/tutorial";
-import {
-  BRIDGE_TILES,
-  HATCH_TILES,
-  OBJECTS,
-  OPTIONAL_ZONES,
-  objectById,
-  objectPos,
-  PRACTICE_IDS,
-  REGIONS,
-  SPAWN,
-  STATION_DOOR_TILES,
-  T,
-  TUTORIAL_EXIT_ROW,
-  TUTORIAL_SPAWN,
-  type WorldObject,
-} from "../data/world";
+import { BRIDGE_TILES, HATCH_TILES, objectPos, PRACTICE_IDS, SPAWN, STATION_DOOR_TILES, T, TUTORIAL_EXIT_ROW, TUTORIAL_SPAWN, type WorldObject } from "../data/world";
+import { connectionById, findObject, MAPS, mapOfObject, type MapDef, type MapId } from "../data/regions/registry";
+import { Lighting } from "../game/Lighting";
+import { discover, routeTo } from "../systems/regions";
+import { journal } from "../systems/mission";
+import { WorldMapUI } from "../ui/WorldMapUI";
 import { CameraController } from "../game/CameraController";
 import { ObjectsView } from "../game/ObjectsView";
 import { Player } from "../game/Player";
@@ -40,16 +30,28 @@ import { keyLabel, REMAPPABLE, type Action, type Settings } from "../systems/set
 import { detect, signalLevel, sniffTargets, trend, type SignalLevel } from "../systems/sniff";
 import { createNewState, isPowered, type GameState } from "../systems/state";
 import { createTutorial, getPracticeInteraction, performPracticeInteraction, tutorialEvent, type TutorialState } from "../systems/tutorial";
-import { buildWorld } from "../systems/worldBuilder";
+import { buildMap, buildWorld } from "../systems/worldBuilder";
 import { TutorialUI } from "../ui/TutorialUI";
 
-type MenuMode = "none" | "pause" | "settings" | "confirm" | "complete" | "controls";
+type MenuMode = "none" | "pause" | "settings" | "confirm" | "complete" | "controls" | "map";
+
+/** Global lookup that never fails (falls back to the ship's checkpoint). */
+const objectById = (id: string): WorldObject | undefined => findObject(id);
 
 export interface GameSceneData {
   state: GameState;
   isNew: boolean;
   /** Start a Mission 00 replay right away (from the title screen). */
   replayTutorial?: boolean;
+  /** Phase 3: arriving through a connection (lift, gate, cable car). */
+  arrival?: string;
+  facing?: 1 | -1;
+}
+
+let mapUI: WorldMapUI | null = null;
+function worldMapUI(): WorldMapUI {
+  if (!mapUI) mapUI = new WorldMapUI(svc().ui.root);
+  return mapUI;
 }
 
 let tutUI: TutorialUI | null = null;
@@ -98,6 +100,13 @@ export class GameScene extends Phaser.Scene {
   private readFrom: { x: number; y: number } | null = null;
   private used = new Set<string>();
   private sniffOfflineToastAt = -99999;
+  /** Phase 3: the map Laika is in, its lighting, and travel state. */
+  mapDef: MapDef = MAPS.surface;
+  private lighting: Lighting | null = null;
+  private transitioning = false;
+  private arrival: string | undefined;
+  private arrivalFacing: 1 | -1 = 1;
+  private discoverAt = 0;
   private settingsListener = (s: Settings) => this.onSettings(s);
   private visibilityListener = () => {
     if (document.hidden && this.menu === "none" && !svc().ui.transmissionOpen) this.openPause();
@@ -112,6 +121,11 @@ export class GameScene extends Phaser.Scene {
     this.state = data.state;
     this.isNew = data.isNew;
     this.replayOnStart = !!data.replayTutorial;
+    this.arrival = data.arrival;
+    this.arrivalFacing = data.facing ?? 1;
+    this.transitioning = false;
+    this.lighting = null;
+    this.discoverAt = 0;
     this.menu = "none";
     this.pendingComplete = false;
     this.regionsShown.clear();
@@ -131,8 +145,12 @@ export class GameScene extends Phaser.Scene {
   create(): void {
     const { ui, audio, input, settings } = svc();
     this.tutorial = this.state.tutorial.status === "active" ? createTutorial("first", this.state.tutorial.stage) : null;
-    const grid = buildWorld();
-    this.world = new WorldView(this, grid);
+    // The map is wherever the current checkpoint is (lifts save the arrival checkpoint first).
+    const mapId: MapId = this.tutorial || this.isNew ? "surface" : (mapOfObject(this.state.checkpoint) ?? "surface");
+    this.mapDef = MAPS[mapId];
+    if (this.replayOnStart && mapId !== "surface") this.replayOnStart = false; // Mission 00 lives on the ship
+    const grid = mapId === "surface" ? buildWorld() : buildMap(this.mapDef, this.state);
+    this.world = new WorldView(this, grid, this.mapDef);
     this.world.create({
       hatchOpen: this.state.flags.hatchOpen,
       bridge: this.state.flags.bridgeExtended,
@@ -143,12 +161,18 @@ export class GameScene extends Phaser.Scene {
     this.world.onSecretEntered = (id) => this.onSecret(id);
     this.world.setUpperDeckLit(!this.tutorial || this.tutorial.facts.repaired, false);
     this.physics.world.setBounds(0, 0, this.world.widthPx, this.world.heightPx + 200);
-    this.objects = new ObjectsView(this);
+    this.objects = new ObjectsView(this, this.mapDef);
     this.objects.syncFromState(this.state);
     this.objects.syncPractice(this.tutorial);
 
     const spawn = this.spawnPoint();
     this.player = new Player(this, spawn.x, spawn.y);
+    if (this.arrival) this.player.face(this.arrivalFacing);
+    if (this.mapDef.theme.dark) {
+      this.lighting = new Lighting(this, this.mapDef.lights);
+      this.lighting.reflective = this.world.reflective;
+      for (const g of this.objects.glintPoints) this.lighting.addGlint(g.x, g.y);
+    }
     this.player.setBoots(this.state.abilities.thrusters);
     this.player.assist = settings.assistJumps;
     this.player.reducedMotion = settings.reducedMotion;
@@ -171,6 +195,7 @@ export class GameScene extends Phaser.Scene {
     ui.showHud(true);
     ui.showObjective(!this.tutorial);
     ui.setSniffAvailable(this.state.abilities.sniff || !!this.tutorial);
+    ui.setAbilities(this.state.abilities);
     ui.onPauseButton = () => this.togglePause();
     ui.onHintButton = () => this.hintButton();
     ui.onSettingsApplied = () => this.renderTutorialCard();
@@ -193,7 +218,12 @@ export class GameScene extends Phaser.Scene {
       ui.setSignal(null);
       tutorialUI().hide();
       input.onDeviceChange = null;
+      input.onMap = null;
+      this.lighting?.destroy();
+      this.lighting = null;
     });
+    input.onMap = () => this.toggleMap();
+    ui.onMapButton = () => this.toggleMap();
     audio.playMusic("game");
     this.refreshHud(true);
 
@@ -209,10 +239,15 @@ export class GameScene extends Phaser.Scene {
     } else if (this.isNew) {
       cam.fadeIn(600, 0, 0, 0);
       this.save();
+    } else if (this.arrival) {
+      cam.fadeIn(settings.reducedMotion ? 120 : 380, 0, 0, 0);
+      this.lockedUntil = this.time.now + 250;
+      this.save();
     } else {
       cam.fadeIn(400, 0, 0, 0);
       ui.toast("Welcome back, Laika!", "good");
     }
+    this.discoverHere(true);
     if (this.replayOnStart) this.time.delayedCall(60, () => this.startReplay());
 
     // Debug / automated play-testing hooks (only with ?debug in the URL). Read helpers + teleport.
@@ -237,6 +272,9 @@ export class GameScene extends Phaser.Scene {
         hints: () => ({ level: this.hints.level, activeMs: this.hints.activeMs }),
         tracking: () => !!this.tracking,
         teleport: (col: number, row: number) => this.player.placeAt(col * TILE + 8, row * TILE),
+        map: () => this.mapDef.id,
+        discovered: () => this.state.discovered,
+        mapOpen: () => this.menu === "map",
         audio: () => ({ unlocked: svc().audio.unlocked, settings: svc().settings }),
       };
     }
@@ -248,8 +286,7 @@ export class GameScene extends Phaser.Scene {
       return { x: col * TILE + 8, y: TUTORIAL_SPAWN.row * TILE };
     }
     if (this.isNew) return { x: SPAWN.col * TILE + 8, y: SPAWN.row * TILE };
-    const cp = objectById(this.state.checkpoint) ?? objectById("cp_ship")!;
-    return objectPos(cp);
+    return objectPos(this.checkpointHere());
   }
 
   private onSettings(s: Settings): void {
@@ -326,6 +363,22 @@ export class GameScene extends Phaser.Scene {
       { underground: this.world.isUnderground(this.player.x, this.player.feetY - 8), interestX: target ? objectPos(target.o).x : null },
     );
     this.world.updateParallax(this.cameras.main);
+    if (this.lighting) {
+      this.lighting.update(this.cameras.main, {
+        x: this.player.x,
+        y: this.player.feetY,
+        facing: this.player.facing,
+        headlamp: this.state.abilities.headlamp,
+        groups: ObjectsView.poweredGroups(this.state),
+        bright: settings.brightCaves,
+        now: time,
+        reducedMotion: settings.reducedMotion,
+      });
+    }
+    if (!t && time >= this.discoverAt) {
+      this.discoverAt = time + 250;
+      this.discoverHere(false);
+    }
 
     if (this.readFrom && ui.readOpen && Math.abs(this.player.x - this.readFrom.x) > 70) {
       ui.hideRead();
@@ -333,6 +386,13 @@ export class GameScene extends Phaser.Scene {
     }
     this.updateHintsTick(delta, time);
     if (time - this.lastSave > 20000) this.save();
+  }
+
+  /** The current checkpoint if it is on this map, otherwise this map's first checkpoint. */
+  private checkpointHere(): WorldObject {
+    const cp = objectById(this.state.checkpoint);
+    if (cp && mapOfObject(cp.id) === this.mapDef.id) return cp;
+    return this.mapDef.objects.find((o) => o.kind === "checkpoint") ?? objectById("cp_ship")!;
   }
 
   private interactionFor(o: WorldObject): Interaction | null {
@@ -355,6 +415,7 @@ export class GameScene extends Phaser.Scene {
 
   /** Never let Laika get stuck in terrain or fall out of the world. */
   private safety(): void {
+    if (this.transitioning) return;
     if (this.player.feetY > this.world.heightPx + 24) {
       this.respawn("Whoops! Back to the last checkpoint.");
       return;
@@ -649,7 +710,7 @@ export class GameScene extends Phaser.Scene {
 
   private currentTargets() {
     const t = this.tutorial;
-    const all = sniffTargets(OBJECTS, this.state, { id: "practice_buried", active: !!t && !t.facts.collected });
+    const all = sniffTargets(this.mapDef.objects, this.state, { id: "practice_buried", active: !!t && !t.facts.collected });
     // While training only the practice component matters; in the campaign it never shows up.
     return t ? all.filter((x) => x.kind === "practice") : all;
   }
@@ -718,12 +779,12 @@ export class GameScene extends Phaser.Scene {
 
   private doBark(): void {
     let near: WorldObject | null = null;
-    for (const o of OBJECTS) {
-      if (o.kind !== "echoSensor" && o.kind !== "rover") continue;
+    for (const o of this.mapDef.objects) {
+      if (o.kind !== "echoSensor" && o.kind !== "rover" && o.kind !== "acousticSensor") continue;
       const p = objectPos(o);
       if (Math.abs(p.x - this.player.x) < 52 && Math.abs(p.y - this.player.feetY) < 30) near = o;
     }
-    this.applyEffects(barkEffects(near, this.state), near ?? OBJECTS[0]);
+    this.applyEffects(barkEffects(near, this.state), near ?? this.mapDef.objects[0]);
   }
 
   // ------------------------------------------------------------------
@@ -740,7 +801,7 @@ export class GameScene extends Phaser.Scene {
   private inOptionalZone(): boolean {
     const c = Math.floor(this.player.x / TILE);
     const r = Math.floor((this.player.feetY - 1) / TILE);
-    return OPTIONAL_ZONES.some((z) => c >= z.x0 && c <= z.x1 && r >= z.y0 && r <= z.y1);
+    return this.mapDef.optionalZones.some((z) => c >= z.x0 && c <= z.x1 && r >= z.y0 && r <= z.y1);
   }
 
   private updateHintsTick(delta: number, time: number): void {
@@ -756,15 +817,26 @@ export class GameScene extends Phaser.Scene {
       exploringOptional: this.inOptionalZone(),
       progressKey: this.progressKey(),
     });
-    const o = getObjective(this.state);
-    this.objects.highlight(level >= 1 && o.target ? o.target : null);
+    const local = this.localTarget();
+    this.objects.highlight(level >= 1 && local ? local : null);
     ui.setHintLevel(level);
-    this.updateGuideArrow(level >= 3 ? o.target : undefined);
+    this.updateGuideArrow(level >= 3 ? local ?? undefined : undefined);
+  }
+
+  /**
+   * The objective's target if it is on this map; otherwise the lift / gate that leads towards it.
+   * Hints name the region first and never point at objects in a map that is not loaded.
+   */
+  private localTarget(): string | null {
+    const o = getObjective(this.state);
+    if (!o.target) return null;
+    const r = routeTo(this.state, this.mapDef.id, o.target);
+    return r?.localTarget ?? null;
   }
 
   /** Hint level 3: an arrow at the edge of the screen pointing towards the objective. */
   private updateGuideArrow(targetId: string | undefined): void {
-    if (!targetId || !objectById(targetId)) {
+    if (!targetId || mapOfObject(targetId) !== this.mapDef.id) {
       this.guide.setVisible(false);
       return;
     }
@@ -869,7 +941,14 @@ export class GameScene extends Phaser.Scene {
         case "save":
           this.save();
           break;
+        case "travel":
+          this.travel(e.connection, e.map as MapId, e.arrive);
+          break;
       }
+    }
+    if (!this.tutorial) {
+      this.objects.syncFromState(this.state);
+      this.syncWorldGroups(true);
     }
     this.refreshHud();
   }
@@ -925,6 +1004,7 @@ export class GameScene extends Phaser.Scene {
         break;
       case "thrusters":
         this.player.setBoots(true);
+        ui.setAbilities(this.state.abilities);
         this.objects.sparkleAt(this.player.x, this.player.feetY - 4, 14);
         break;
       case "demoComplete":
@@ -933,6 +1013,7 @@ export class GameScene extends Phaser.Scene {
         break;
       case "sniffUnlocked":
         ui.setSniffAvailable(true);
+        ui.setAbilities(this.state.abilities);
         this.time.delayedCall(300, () => ui.toast(`Scanner unlocked! Press ${keyLabel(settings.bindings.sniff)} to sniff.`, "good"));
         break;
       case "practiceConsole":
@@ -970,7 +1051,208 @@ export class GameScene extends Phaser.Scene {
           ui.caption("Bleep! (R-2 perks up)");
         });
         break;
+      // ---------------- Phase 3 ----------------
+      case "headlamp":
+        this.objects.sparkleAt(this.player.x, this.player.feetY - 14, 12);
+        ui.caption("Click! Headlamp on");
+        ui.setAbilities(this.state.abilities);
+        break;
+      case "passageOpen":
+        audio.sfx("door");
+        ui.caption("Shutter sliding open");
+        this.focusOn(objectId);
+        break;
+      case "circuitOn":
+        audio.sfx("power");
+        ui.caption("Power humming through the cables");
+        this.time.delayedCall(600, () => audio.sfx("door"));
+        break;
+      case "drill":
+        audio.sfx("mech");
+        this.time.delayedCall(250, () => audio.sfx("mech", { pitch: 0.8 }));
+        ui.caption("Drill whirring");
+        this.objects.sparkleAt(this.player.x, this.player.feetY - 20, 10);
+        break;
+      case "liftStarted":
+      case "cableStarted":
+        audio.sfx("power");
+        ui.caption(ev === "liftStarted" ? "Lift motor starting" : "Cable car motor starting");
+        this.objects.sparkleAt(objectPos(objectById(objectId)!).x, objectPos(objectById(objectId)!).y - 30, 10);
+        break;
+      case "relayOn":
+        audio.sfx("checkpoint");
+        ui.caption("Relay beep: locked on");
+        this.objects.sparklesFor(objectId);
+        break;
+      case "junctionOn":
+        audio.sfx("power");
+        ui.caption("Junction humming");
+        break;
+      case "networkOnline":
+        ui.caption("Relay network online");
+        this.time.delayedCall(400, () => audio.sfx("door"));
+        if (objectById("tower_console") && mapOfObject("tower_console") === this.mapDef.id) this.focusAt(91 * TILE, 20 * TILE);
+        break;
+      case "towerTrace":
+        audio.sfx("power");
+        break;
+      case "bridgeOut":
+        ui.caption("A little bridge unfolds");
+        break;
+      case "freightUnlocked":
+        ui.toast("Freight lift unlocked! It's under the catwalk.", "good");
+        break;
+      case "locker":
+        audio.sfx("door");
+        break;
+      case "mission02Complete":
+        this.pendingCards = "m2";
+        break;
+      case "mission03Complete":
+        this.time.delayedCall(800, () => this.showMission03Complete());
+        break;
     }
+  }
+
+  /** Doors and bridges of this map that changed with the state (shutters, tower door, cache bridge). */
+  private syncWorldGroups(animate: boolean): void {
+    if (this.mapDef.id === "surface") return;
+    const { audio } = svc();
+    const changed = this.world.syncGroups(this.state, animate, (c, r, i, n) => {
+      audio.sfx("bridge", { pitch: 1 + i * 0.04 });
+      this.objects.sparkleAt(c * TILE + 8, r * TILE, 2);
+      if (i === n - 1) audio.sfx("repair");
+    });
+    if (changed.length && animate) this.objects.syncCables(this.state, true);
+  }
+
+  /** Phase 3 travel between maps. Saves the arrival checkpoint FIRST, so a reload mid-way is safe. */
+  private travel(connection: string, map: MapId, arrive: string): void {
+    if (this.transitioning) return;
+    const { ui, input, settings } = svc();
+    const c = connectionById(connection);
+    if (!c || !c.open(this.state)) return;
+    this.transitioning = true;
+    this.lockedUntil = this.time.now + 99999;
+    this.state.checkpoint = arrive;
+    if (!this.state.visitedCheckpoints.includes(arrive)) this.state.visitedCheckpoints.push(arrive);
+    this.save();
+    ui.setPrompt(null);
+    ui.hideRead();
+    ui.clearTouch();
+    input.flush();
+    const facing = this.player.facing;
+    const go = () => this.scene.restart({ state: this.state, isNew: false, arrival: connection, facing } satisfies GameSceneData);
+    ui.caption(c.id === "skyline" ? "Cable car humming" : c.id === "northGate" ? "Hatch clanking" : "Lift whirring");
+    svc().audio.sfx("door");
+    if (settings.reducedMotion) this.time.delayedCall(120, go);
+    else {
+      this.cameras.main.fadeOut(360, 0, 0, 0);
+      this.cameras.main.once(Phaser.Cameras.Scene2D.Events.FADE_OUT_COMPLETE, go);
+    }
+    void map;
+  }
+
+  /** Map discovery, region title cards, arrival flags and one-time contextual tips. */
+  private discoverHere(first: boolean): void {
+    if (this.tutorial) return;
+    const { ui, audio, settings } = svc();
+    const col = Math.floor(this.player.x / TILE);
+    const row = Math.floor((this.player.feetY - 1) / TILE);
+    const d = discover(this.state, this.mapDef.id, col, row);
+    let changed = false;
+    for (const sec of d.sections) {
+      changed = true;
+      if (!first && this.mapDef.id !== "surface") ui.caption(`Map updated: ${sec.name}`);
+    }
+    for (const lm of d.landmarks) {
+      changed = true;
+      if (!first) ui.toast(`Landmark: ${lm.name}`, "info");
+    }
+    for (const f of d.flags) {
+      changed = true;
+      if (f === "relayCFound") {
+        audio.sfx("reveal");
+        ui.toast("Found it: Relay C, hidden inside the rock!", "good");
+      }
+    }
+    for (const z of this.mapDef.tipZones ?? []) {
+      if (this.state.seen.includes(z.id)) continue;
+      if (col < z.rect.x0 || col > z.rect.x1 || row < z.rect.y0 || row > z.rect.y1) continue;
+      if (z.id === "tip:needLamp" && this.state.abilities.headlamp) continue;
+      this.state.seen.push(z.id);
+      changed = true;
+      if (z.id === "tip:needLamp") ui.toast("It gets dark down here. The survey lamp by the entrance would help.", "info");
+      if (z.id === "tip:bootsRidge") {
+        ui.toast(
+          this.state.abilities.thrusters
+            ? `Those ledges are high: jump, then press ${keyLabel(settings.bindings.jump)} again in mid-air for your Thruster Boots.`
+            : "Those ledges are too high for now. Thruster Boots (outpost workstation) would reach them. Optional!",
+          "info",
+        );
+      }
+    }
+    if (changed) {
+      this.refreshHud();
+      if (!first) this.save();
+    }
+  }
+
+  private pendingCards: "m2" | null = null;
+
+  private focusAt(x: number, y: number): void {
+    if (this.camCtl.focus(x, y, 1900, this.time.now)) this.lockedUntil = this.time.now + 1900;
+  }
+
+  private showMission03Complete(): void {
+    const { ui, audio } = svc();
+    audio.playMusic("ending");
+    audio.sfx("complete");
+    this.player.doAction("celebrate", this.time.now);
+    this.save();
+    this.time.delayedCall(900, () => {
+      this.menu = "complete";
+      this.scene.pause();
+      this.physics.pause();
+      ui.showStoryComplete(
+        { title: "MISSION 03 COMPLETE", subtitle: "Echoes Above", lines: journal(this.state).map((j) => `${j.have >= j.total ? "[x]" : "[ ]"} ${j.label}: ${Math.min(j.have, j.total)}/${j.total}`), minutes: Math.max(1, Math.round(this.state.playTimeMs / 60000)) },
+        () => {
+          ui.closeScreen();
+          this.resume();
+          ui.toast("The signal waits in the north... Explore as long as you like!", "good");
+        },
+        () => {
+          this.save();
+          ui.closeScreen();
+          ui.showHud(false);
+          this.menu = "none";
+          this.scene.start("title");
+        },
+      );
+    });
+  }
+
+  toggleMap(): void {
+    const { ui } = svc();
+    if (this.menu === "map") {
+      worldMapUI().hide();
+      this.resume();
+      return;
+    }
+    if (this.menu !== "none" || this.tutorial || this.transitioning) return;
+    this.save();
+    this.scene.pause();
+    this.physics.pause();
+    this.menu = "map";
+    ui.clearTouch();
+    const o = getObjective(this.state);
+    worldMapUI().show({
+      state: this.state,
+      here: { map: this.mapDef.id, col: Math.floor(this.player.x / TILE), row: Math.floor((this.player.feetY - 1) / TILE) },
+      target: o.target ?? null,
+      objective: o.primary,
+      onClose: () => this.toggleMap(),
+    });
   }
 
   private syncReceiver(): void {
@@ -1020,6 +1302,18 @@ export class GameScene extends Phaser.Scene {
           this.pendingComplete = false;
           this.showCompletion();
         }
+        if (this.pendingCards === "m2") {
+          this.pendingCards = null;
+          svc().audio.sfx("complete");
+          tutorialUI().missionCards(
+            [
+              { small: "", big: "MISSION 02 COMPLETE" },
+              { small: "MISSION 03", big: "ECHOES ABOVE" },
+            ],
+            1500,
+            () => this.refreshHud(true),
+          );
+        }
       },
       blocking,
     );
@@ -1030,8 +1324,8 @@ export class GameScene extends Phaser.Scene {
   // ------------------------------------------------------------------
 
   private checkpoints(): void {
-    for (const o of OBJECTS) {
-      if (o.kind !== "checkpoint" || this.state.checkpoint === o.id) continue;
+    for (const o of this.mapDef.objects) {
+      if (o.kind !== "checkpoint" || o.hidden || this.state.checkpoint === o.id) continue;
       const p = objectPos(o);
       if (Math.abs(p.x - this.player.x) < 14 && Math.abs(p.y - this.player.feetY) < 20) {
         this.state.checkpoint = o.id;
@@ -1051,15 +1345,15 @@ export class GameScene extends Phaser.Scene {
   private regions(): void {
     const { ui, audio } = svc();
     const col = Math.floor(this.player.x / TILE);
-    const region = REGIONS.find((r) => col >= r.x0 && col <= r.x1) ?? REGIONS[0];
+    const regions = this.mapDef.regions;
+    const region = regions.find((r) => col >= r.x0 && col <= r.x1) ?? regions[0];
     const inShip = this.world.isInside("ship", this.player.x, this.player.feetY);
     const inStation = this.world.isInside("station", this.player.x, this.player.feetY);
     if (region.id !== this.regionId) {
       this.regionId = region.id;
       if (!this.regionsShown.has(region.id) && !(region.id === "station" && !inStation) && !this.tutorial) {
         this.regionsShown.add(region.id);
-        const idx = REGIONS.indexOf(region);
-        ui.showRegion(region.name, `MISSION 01 · AREA ${String.fromCharCode(65 + idx)}`);
+        ui.showRegion(region.name, `REGION ${String(region.regionNo ?? 1).padStart(2, "0")}`);
       }
       if (region.id === "outpost" && !this.state.flags.reachedOutpost) {
         this.state.flags.reachedOutpost = true;
@@ -1068,15 +1362,16 @@ export class GameScene extends Phaser.Scene {
     }
     if (inStation && !this.regionsShown.has("station")) {
       this.regionsShown.add("station");
-      ui.showRegion("Ares Research Station", "MISSION 01 · AREA D");
+      ui.showRegion("Ares Research Station", "REGION 03");
     }
     if (inStation && !this.state.flags.reachedStation) {
       this.state.flags.reachedStation = true;
       this.refreshHud();
       this.save();
     }
-    const kind = inShip ? "ship" : inStation ? "station" : "outside";
-    const nearOutpost = isPowered(this.state) && col >= 30 && col <= 85 ? 1 : 0;
+    const theme = this.mapDef.theme.ambience;
+    const kind = theme === "depths" ? "depths" : theme === "ridge" ? "ridge" : inShip ? "ship" : inStation ? "station" : "outside";
+    const nearOutpost = this.mapDef.id === "surface" && isPowered(this.state) && col >= 30 && col <= 85 ? 1 : this.mapDef.id === "depths" && this.state.flags.circuitRestored ? 1 : 0;
     const k = `${kind}|${nearOutpost}`;
     if (k !== this.ambienceKey) {
       this.ambienceKey = k;
@@ -1117,8 +1412,7 @@ export class GameScene extends Phaser.Scene {
       this.teleport((stageDef(this.tutorial.stage)?.respawnCol ?? TUTORIAL_SPAWN.col) * TILE + 8, TUTORIAL_SPAWN.row * TILE);
       return;
     }
-    const cp = objectById(this.state.checkpoint) ?? objectById("cp_ship")!;
-    const p = objectPos(cp);
+    const p = objectPos(this.checkpointHere());
     this.teleport(p.x, p.y);
     svc().ui.toast(msg);
   }
@@ -1126,6 +1420,10 @@ export class GameScene extends Phaser.Scene {
   togglePause(): void {
     const { ui } = svc();
     if (!this.scene.isActive() && !this.scene.isPaused()) return;
+    if (this.menu === "map") {
+      this.toggleMap();
+      return;
+    }
     if (this.menu === "none") this.openPause();
     else if (this.menu === "pause" || this.menu === "confirm") this.resume();
     else if (this.menu === "settings" || this.menu === "controls") this.openPause();
@@ -1156,6 +1454,12 @@ export class GameScene extends Phaser.Scene {
         this.menu = "controls";
         ui.showControls(() => this.openPause());
       },
+      onMap: t
+        ? undefined
+        : () => {
+            this.resume();
+            this.toggleMap();
+          },
       onCheckpoint: () => {
         this.resume();
         this.respawn("Back at the last checkpoint.");
@@ -1173,7 +1477,7 @@ export class GameScene extends Phaser.Scene {
         this.endReplay();
       },
       onReplayTutorial:
-        this.state.tutorial.status !== "active" && !t
+        this.state.tutorial.status !== "active" && !t && this.mapDef.id === "surface"
           ? () => {
               this.resume();
               this.startReplay();
@@ -1182,7 +1486,7 @@ export class GameScene extends Phaser.Scene {
       onRestart: () => {
         this.menu = "confirm";
         ui.confirm(
-          "Restart the demo from the beginning? Your current progress will be erased.",
+          "Restart the adventure from the beginning? Your current progress will be erased.",
           "Restart",
           () => {
             deleteSave(svc().store);

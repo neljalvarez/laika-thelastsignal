@@ -12,7 +12,7 @@
 import type { Settings } from "../systems/settings";
 
 export type MusicScene = "title" | "game" | "ending" | "none";
-export type AmbienceKind = "ship" | "outside" | "station" | "none";
+export type AmbienceKind = "ship" | "outside" | "station" | "depths" | "ridge" | "none";
 
 const TRACKS: Record<Exclude<MusicScene, "none">, string[]> = {
   title: ["audio/against-the-crimson-sky.mp3"],
@@ -376,10 +376,12 @@ export class AudioManager {
     if (!this.ctx || !this.amb) return;
     const t = this.ctx.currentTime;
     const set = (g: GainNode, v: number) => g.gain.setTargetAtTime(v, t, 0.6);
-    set(this.amb.wind, kind === "outside" ? 0.55 : kind === "none" ? 0 : 0.12);
-    set(this.amb.hum, kind === "ship" ? 0.09 : 0);
-    set(this.amb.station, kind === "station" ? 0.05 : 0);
-    set(this.amb.machine, kind === "outside" ? machine * 0.05 : 0);
+    // Phase 3: the depths are nearly silent (a low equipment hum, more once the circuit is on);
+    // the ridge is windier than the canyon. Changes glide over ~2 s, never cut.
+    set(this.amb.wind, kind === "outside" ? 0.55 : kind === "ridge" ? 0.8 : kind === "none" ? 0 : kind === "depths" ? 0.05 : 0.12);
+    set(this.amb.hum, kind === "ship" ? 0.09 : kind === "depths" ? 0.04 + machine * 0.03 : 0);
+    set(this.amb.station, kind === "station" ? 0.05 : kind === "depths" ? 0.025 : 0);
+    set(this.amb.machine, kind === "outside" ? machine * 0.05 : kind === "depths" ? machine * 0.025 : 0);
   }
 
   // ---------------- Sound effects ----------------

@@ -27,11 +27,10 @@ export const RIDGE_W = 112;
 export const RIDGE_H = 64;
 
 const TERRAIN: TerrainOp[] = [
-  // Cliff walls behind the climbing routes (background only) and supports under the overlook.
-  back(B.Ridge, 2, 29, 26, 57),
-  back(B.Ridge, 36, 50, 34, 55),
-  back(B.Ridge, 62, 73, 15, 29),
-  back(B.Ridge, 50, 53, 14, 33),
+  // Rock pillars (background only) holding up the overlook and the cache: the sky stays open so the
+  // tower can be seen from the very first screen.
+  back(B.Ridge, 66, 70, 14, 29),
+  back(B.Ridge, 51, 52, 13, 33),
   // Map edges.
   fill(T.RidgeRock, 0, 1, 0, RIDGE_H - 1),
   fill(T.RidgeRock, 108, RIDGE_W - 1, 0, RIDGE_H - 1),
