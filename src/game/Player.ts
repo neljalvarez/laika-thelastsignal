@@ -54,6 +54,8 @@ export class Player {
   private thrust: Phaser.GameObjects.Particles.ParticleEmitter;
   private glow: Phaser.GameObjects.Image;
   boots = false;
+  /** Phase 4: air jumps allowed given how many were used this jump (suit energy decides). */
+  airJumpLimit: ((used: number) => number) | null = null;
   assist = false;
   reducedMotion = false;
   onSound: ((name: string, opts?: { pitch?: number; volume?: number }) => void) | null = null;
@@ -234,7 +236,7 @@ export class Player {
       ceiling,
       dtMs,
       tuning: this.assist ? ASSIST_TUNING : TUNING,
-      airJumps: this.boots ? 1 : 0,
+      airJumps: !this.boots ? 0 : this.airJumpLimit ? this.airJumpLimit(this.move.airJumpsUsed) : 1,
       locked: locked || this.action !== null || this.scripted !== null,
     });
     if ((state.vx > 0 && body.blocked.right) || (state.vx < 0 && body.blocked.left)) state.vx = 0;
@@ -251,7 +253,8 @@ export class Player {
         this.airJumpUntil = now + 260;
         this.onSound?.("airJump");
         this.thrust.emitParticleAt(this.sprite.x, this.feetY, this.reducedMotion ? 4 : 12);
-        this.glow.setPosition(this.sprite.x, this.feetY).setAlpha(0.7).setScale(0.6);
+        // The second (boosted) air jump flashes cyan so it reads differently from the first.
+        this.glow.setPosition(this.sprite.x, this.feetY).setAlpha(0.7).setScale(state.airJumpsUsed >= 2 ? 0.9 : 0.6).setTint(state.airJumpsUsed >= 2 ? 0x7de8ff : 0xffffff);
         this.sprite.scene.tweens.add({ targets: this.glow, alpha: 0, scale: 1, duration: 260 });
       } else if (e === "land") {
         const hard = this.lastFallSpeed > 220;
