@@ -11,7 +11,8 @@ What you can play today: **Mission 00: First Pawprints** (a 1–2 minute guided 
 **Mission 01: A Signal in the Silence** (Landing Outpost → Crimson Canyon → Ares Station), and, new in Phase 3,
 **Mission 02: Beneath the Red** (the Frozen Depths) and **Mission 03: Echoes Above** (Echo Ridge), across five
 connected regions, and, new in Phase 4, **Mission 04: A Place to Call Home** (restore the outpost's power, life
-support, water, greenhouse and radiation shelter). It is the standalone successor to the original NASA Space Apps strategy game
+support, water, greenhouse and radiation shelter), and, new in Phase 5, **Chapter 5: Built to Explore** with a
+workbench, five pieces of equipment Laika wears, and a much calmer, simpler screen. It is the standalone successor to the original NASA Space Apps strategy game
 [`laikamars-nasa`](https://github.com/neljalvarez/laikamars-nasa), which is left untouched.
 
 > **Fiction notice.** This is an alternate-history story inspired by Laika, the first animal to orbit the Earth
@@ -69,6 +70,38 @@ scenarios A–K and `phase4.py` runs Phase 4 scenarios A–M.
 Any static host works: upload the contents of `dist/`. Asset paths are relative (`base: "./"`).
 
 ## What's in the game
+
+### Phase 5: simpler to play, gear to build
+
+- **Less to read.** Objectives are a few words with a direction arrow ("Fix the battery"), action prompts are one to
+  three words ("Lift down", "Take Metal"), radio messages are two short lines that play while you keep moving (the
+  full text is saved in the Journal), and items have plain names (Radio Part, Circuit, Pump, Pipe Connector).
+- **A quieter screen.** One objective at a time. The inventory, suit meter and power chip appear only when they
+  change or matter, then tuck away. A "Detailed" screen-info setting brings everything back.
+- **Chapters instead of end screens.** Prologue → Chapter 1 The Lost Signal → Chapter 2 Beneath the Red → Chapter 3
+  Echoes Above → Chapter 4 A Place to Call Home → Chapter 5 Built to Explore. A mission ends with a short
+  "Signal traced!" and a chapter banner; the next chapter's radio call arrives by itself, so you never have to walk
+  back to a console to find out the story continues.
+- **A marker that knows the way.** Guided mode (default) shows a marker that follows a real route: around walls, up
+  the habitat ladder, to the nearest working lift when the goal is on another map. Explorer mode shows it only when
+  you are stuck; Minimal shows only the direction arrow. The ? button always shows the way.
+- **Simpler map.** Your position, the goal and checkpoints; landmarks, collected things and route names are
+  optional filters. Tap a checkpoint to set a marker there.
+- **Shorter tutorial.** Each step is one short line and the control ("Move right. (A) (D)").
+- **Calmer notifications.** One at a time, never more than two, repeats dropped, pick-ups merged ("+2 Metal"),
+  warnings first.
+- **Fewer chores in Mission 04.** Fixing the battery powers the rooms; one press installs and starts life support;
+  the water repair opens the grow-room valve; planting turns the lights on; the second probe bark finishes the
+  shelter. Survival now starts on Relaxed (your saved choice is kept).
+- **The workbench.** Big cards, two materials (Metal and Circuits), one BUILD button. Five pieces of equipment:
+  Thruster Boots, Signal Booster, Thruster Upgrade, Survey Headlamp and Reserve Battery. Upgrades are permanent
+  and automatic (no loadouts), each one shows on Laika, and each opens one optional cache.
+- **Chapter 5: Built to Explore.** A short mission: get the booster blueprint, find parts downstairs, build it, sniff
+  out a lost Nav Beacon and link it at the radio.
+- **Journal and rewards.** Gear, Science, Radio and Progress tabs; five unlockable looks (no gameplay effect); and
+  Laika's room fills up with souvenirs (a sample shelf, a mission patch, a photo, a little rover model).
+- Main menu: Continue / New Game / Settings, with Tutorial, Controls and Credits under "More". Settings are grouped
+  in tabs with a two-step "Reset to defaults". Save format v5 migrates every earlier save.
 
 ### Phase 4: survival, engineering and the base
 
@@ -157,7 +190,8 @@ Any static host works: upload the contents of `dist/`. Asset paths are relative 
 - [ROADMAP.md](ROADMAP.md): future phases.
 - [ASSET_CREDITS.md](ASSET_CREDITS.md): where every asset and fact comes from.
 - [PHASE_1_HANDOFF.md](PHASE_1_HANDOFF.md), [PHASE_2_HANDOFF.md](PHASE_2_HANDOFF.md),
-  [PHASE_3_HANDOFF.md](PHASE_3_HANDOFF.md) and [PHASE_4_HANDOFF.md](PHASE_4_HANDOFF.md): status, test results,
+  [PHASE_3_HANDOFF.md](PHASE_3_HANDOFF.md), [PHASE_4_HANDOFF.md](PHASE_4_HANDOFF.md) and
+  [PHASE_5_HANDOFF.md](PHASE_5_HANDOFF.md): status, test results,
   known issues and how to continue.
 
 ## Credits

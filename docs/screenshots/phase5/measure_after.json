@@ -1,0 +1,56 @@
+{
+ "title_new": {
+  "chars": 107,
+  "words": 21,
+  "widgets": 0,
+  "text": "LAIKA THE LAST SIGNAL One small dog. One lost signal. \u25b6 New Game Settings More \u25be In loving memory of Laika."
+ },
+ "tutorial": {
+  "chars": 48,
+  "words": 18,
+  "widgets": 3,
+  "text": "\u25a6 ? II \u25c6 \u25cb \u25cb \u25cb \u25cb \u25cb \u25cb Skip Move right. A D or \u2190 \u2192"
+ },
+ "gameplay_m01": {
+  "chars": 52,
+  "words": 13,
+  "widgets": 4,
+  "text": "\u25c0 Find spare parts: Metal 1/2 \u00b7 Circuit 0/1 F \u25a6 ? II"
+ },
+ "workstation": {
+  "chars": 75,
+  "words": 17,
+  "widgets": 5,
+  "text": "\u25c0 Find spare parts: Metal 1/2 \u00b7 Circuit 0/1 F \u25a6 ? II E Workbench (No power)"
+ },
+ "workstation_open": {
+  "chars": 84,
+  "words": 19,
+  "widgets": 5,
+  "text": "\u25c0 Find spare parts: Metal 1/2 \u00b7 Circuit 0/1 F \u25a6 ? II E Workbench (No power) No power"
+ },
+ "map": {
+  "chars": 340,
+  "words": 70,
+  "widgets": 5,
+  "text": "\u25c0 Find spare parts: Metal 1/2 \u00b7 Circuit 0/1 F \u25a6 ? II E Workbench (No power) Map You are in: Landing Outpost \u2193 underground \u2191 high ground SURFACE: Outpost \u00b7 Canyon \u00b7 Station \u25b2 \u25b2 FROZEN DEPTHS ? ? \u2605 Laika \u2605 Find spare parts: Metal 1/2 \u00b7 Circuit 0/1 \u25cf You \u2605 Goal \u25b2 Checkpoint (tap to go) \u2501 Shortcut \u25c6 Landmarks \u2713 Collected Route names Close map"
+ },
+ "m01_end": {
+  "chars": 38,
+  "words": 11,
+  "widgets": 5,
+  "text": "\u25c0 Ride the lift down E \u25a6 ? II E Listen"
+ },
+ "base_m04": {
+  "chars": 26,
+  "words": 9,
+  "widgets": 4,
+  "text": "\u25c0 Dig up the pump F \u25a6 ? II"
+ },
+ "mobile_m01": {
+  "chars": 52,
+  "words": 13,
+  "widgets": 4,
+  "text": "\u25c0 Find spare parts: Metal 1/2 \u00b7 Circuit 0/1 F \u25a6 ? II"
+ }
+}

@@ -37,8 +37,7 @@ export class TutorialUI {
     c.classList.remove("hidden", "done");
     c.replaceChildren();
     const head = el("div", "tut-head");
-    head.append(el("span", "tut-mission", opts.replay ? "MISSION 00 · PRACTICE" : "MISSION 00 · FIRST PAWPRINTS"));
-    const skip = el("button", "tut-skip", opts.replay ? "End practice" : "Skip tutorial");
+    const skip = el("button", "tut-skip", opts.replay ? "End" : "Skip");
     skip.type = "button";
     skip.addEventListener("click", (e) => {
       e.stopPropagation();
@@ -50,7 +49,10 @@ export class TutorialUI {
     const idx = playable.findIndex((s) => s.id === stage.id);
     playable.forEach((_s, i) => dots.append(el("span", i < idx ? "dot done" : i === idx ? "dot now" : "dot", i < idx ? "●" : i === idx ? "◆" : "○")));
     dots.setAttribute("aria-label", `Step ${Math.max(1, idx + 1)} of ${playable.length}`);
-    c.append(head, el("div", "tut-title", stage.title), this.withKeys(stage.instruction(ctx)), dots);
+    head.prepend(dots);
+    const keys = stage.instruction(ctx);
+    c.append(head, el("div", "tut-title", stage.title));
+    if (keys) c.append(this.withKeys(keys));
     if (opts.hint) c.append(el("div", "tut-hint", opts.hint));
   }
 

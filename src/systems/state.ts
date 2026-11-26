@@ -4,6 +4,7 @@
  */
 import type { ItemId } from "../data/items";
 import type { TutorialStageId } from "../data/tutorial";
+import type { CosmeticId, EquipmentId } from "../data/equipment";
 
 /**
  * v1: Phase 1. v2: Phase 2 adds the Mission 00 tutorial record and the Bark ability.
@@ -11,8 +12,10 @@ import type { TutorialStageId } from "../data/tutorial";
  * v4: Phase 4 adds Mission 04 and the outpost's engineering: restoration flags (permanent), the
  *     `eng` operating conditions (temporary: battery charge, power allocation, greenhouse growth,
  *     suit energy, Lights Out dust) and the science journal.
+ * v5: Phase 5 adds Chapter 5 (Mission 05) flags, the workbench `gear` (built equipment, known
+ *     blueprints, chosen cosmetics) and the Nav Beacon item.
  */
-export const STATE_VERSION = 4;
+export const STATE_VERSION = 5;
 
 export type FlagId =
   | "checkedShipRadio"
@@ -72,7 +75,12 @@ export type FlagId =
   | "canyonPostFixed"
   | "seismometerRead"
   | "fissureSurveyed"
-  | "observatoryReached";
+  | "observatoryReached"
+  // Phase 5 - Mission 05: Built to Explore
+  | "m5Briefed"
+  | "m5Blueprint"
+  | "beaconFound"
+  | "m5Complete";
 
 export const ALL_FLAGS: FlagId[] = [
   "checkedShipRadio",
@@ -130,6 +138,10 @@ export const ALL_FLAGS: FlagId[] = [
   "seismometerRead",
   "fissureSurveyed",
   "observatoryReached",
+  "m5Briefed",
+  "m5Blueprint",
+  "beaconFound",
+  "m5Complete",
 ];
 
 export type AbilityId = "sniff" | "sweep" | "thrusters" | "bark" | "headlamp";
@@ -170,6 +182,21 @@ export interface GameState {
   eng: EngState;
   /** Phase 4 science journal: ids of unlocked entries (data/science.ts). */
   science: string[];
+  /** Phase 5 workbench: equipment built, blueprints known, cosmetics worn. */
+  gear: GearState;
+}
+
+export interface GearState {
+  /** Built equipment (Thruster Boots stay in `abilities.thrusters` as in Phases 1-4). */
+  built: EquipmentId[];
+  /** Blueprints shown at the workbench. */
+  blueprints: EquipmentId[];
+  /** Cosmetics Laika is wearing (only unlocked ones count). */
+  wear: CosmeticId[];
+}
+
+export function createGearState(): GearState {
+  return { built: [], blueprints: ["boots"], wear: [] };
 }
 
 export interface EngState {
@@ -198,7 +225,7 @@ export function createNewState(): GameState {
   return {
     version: STATE_VERSION,
     flags,
-    inventory: { metal: 0, electronics: 0, commsModule: 0, sample: 0, treat: 0, coupling: 0, relayCell: 0, recording: 0, roverPart: 0, regulator: 0, recyclerPart: 0, waterCoupling: 0, seeds: 0, powerCell: 0 },
+    inventory: { metal: 0, electronics: 0, commsModule: 0, sample: 0, treat: 0, coupling: 0, relayCell: 0, recording: 0, roverPart: 0, regulator: 0, recyclerPart: 0, waterCoupling: 0, seeds: 0, powerCell: 0, navBeacon: 0 },
     collected: [],
     abilities: { sniff: false, sweep: true, thrusters: false, bark: true, headlamp: false },
     sweptPanels: [],
@@ -211,6 +238,7 @@ export function createNewState(): GameState {
     puzzles: { relayAim: { ...RELAY_START_AIM } },
     eng: createEngState(),
     science: [],
+    gear: createGearState(),
   };
 }
 
@@ -227,4 +255,11 @@ export function isPowered(s: GameState): boolean {
 
 export function cloneState(s: GameState): GameState {
   return JSON.parse(JSON.stringify(s)) as GameState;
+}
+
+/** Phase 5: an object marked `needs: <equipment>` only exists for Laika once that gear is built. */
+export function gearReady(s: GameState, needs: string | undefined): boolean {
+  if (!needs) return true;
+  if (needs === "boots") return s.abilities.thrusters;
+  return !!s.gear?.built.includes(needs as EquipmentId);
 }

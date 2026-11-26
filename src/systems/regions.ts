@@ -78,7 +78,7 @@ export function connectionOpen(s: GameState, id: string): boolean {
  * `from`, or null when already there / no open route. Hints use this so they always name the right
  * region first, then the way to get there, instead of pointing at an object in an unloaded map.
  */
-export function nextHop(s: GameState, from: MapId, to: MapId): { object: string; connection: string; via: string } | null {
+export function nextHop(s: GameState, from: MapId, to: MapId, near?: { col: number; targetCol?: number }): { object: string; connection: string; via: string } | null {
   if (from === to) return null;
   const prev = new Map<MapId, { from: MapId; object: string; connection: string; via: string }>();
   const queue: MapId[] = [from];
@@ -105,17 +105,39 @@ export function nextHop(s: GameState, from: MapId, to: MapId): { object: string;
     at = step.from;
     step = prev.get(at)!;
   }
+  // Phase 5: when several open connections lead to the same next map (freight lift and survey lift),
+  // take the one that makes the shorter trip from where Laika stands.
+  if (near) {
+    const col = (id: string) => findObject(id)?.col ?? 0;
+    let best = { object: step.object, connection: step.connection, via: step.via };
+    let bestCost = Infinity;
+    for (const c of CONNECTIONS) {
+      if (!c.open(s)) continue;
+      for (const [here, there] of [
+        [c.a, c.b],
+        [c.b, c.a],
+      ] as const) {
+        if (here.map !== from || there.map !== at) continue;
+        const cost = Math.abs(col(here.object) - near.col) + (at === to && near.targetCol !== undefined ? Math.abs(col(there.arrive) - near.targetCol) : 0);
+        if (cost < bestCost) {
+          bestCost = cost;
+          best = { object: here.object, connection: c.id, via: c.name };
+        }
+      }
+    }
+    return best;
+  }
   return { object: step.object, connection: step.connection, via: step.via };
 }
 
 /** Where a target object is, for hints: its map, region name, and the local object to head for. */
-export function routeTo(s: GameState, here: MapId, targetId: string): { localTarget: string | null; map: MapId; regionName: string; via: string | null } | null {
+export function routeTo(s: GameState, here: MapId, targetId: string, fromCol?: number): { localTarget: string | null; map: MapId; regionName: string; via: string | null } | null {
   const map = mapOfObject(targetId);
   const o = findObject(targetId);
   if (!map || !o) return null;
   const region = MAPS[map].regions.find((r) => o.col >= r.x0 && o.col <= r.x1) ?? MAPS[map].regions[0];
   if (map === here) return { localTarget: targetId, map, regionName: region.name, via: null };
-  const hop = nextHop(s, here, map);
+  const hop = nextHop(s, here, map, fromCol === undefined ? undefined : { col: fromCol, targetCol: o.col });
   return { localTarget: hop?.object ?? null, map, regionName: region.name, via: hop?.via ?? null };
 }
 
@@ -129,9 +151,9 @@ export function transitInteraction(o: WorldObject, s: GameState): Interaction | 
   const { c, side, here } = info;
   if (c.open(s)) return { verb: here.verb };
   if (c.activate && c.activate.side === side) {
-    return c.activate.ready(s) ? { verb: c.activate.verb, detail: "Opens a shortcut" } : { verb: `Inspect ${o.label ?? "lift"}`, detail: c.activate.notReady };
+    return c.activate.ready(s) ? { verb: c.activate.verb, detail: "Opens a shortcut" } : { verb: "Check lift", detail: c.activate.notReady };
   }
-  return { verb: `Inspect ${o.label ?? "door"}`, detail: c.locked[side] || "Locked" };
+  return { verb: "Check door", detail: c.locked[side] || "Locked" };
 }
 
 export function performTransit(o: WorldObject, s: GameState): Effect[] {

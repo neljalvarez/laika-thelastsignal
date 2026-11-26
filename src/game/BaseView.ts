@@ -8,7 +8,7 @@ import Phaser from "phaser";
 import { TILE } from "../config/constants";
 import type { PowerStatus } from "../systems/engineering";
 import type { GameState } from "../systems/state";
-import { ROOMS, roomDarkness, surfaceLook, type Room } from "./facilityLook";
+import { habitatDecor, ROOMS, roomDarkness, surfaceLook, type Room } from "./facilityLook";
 import { DEPTH } from "./WorldView";
 
 const CEIL_Y = 26 * TILE; // top of the lower level's open space
@@ -32,6 +32,7 @@ export class BaseView {
   private growLamp: Phaser.GameObjects.Image;
   private growGlow: Phaser.GameObjects.Image;
   private pot: Phaser.GameObjects.Image;
+  private decor: Record<"shelf" | "patch" | "photo" | "rover", Phaser.GameObjects.Image>;
   private dome: Phaser.GameObjects.Image;
   private domePlants: Phaser.GameObjects.Image;
   private domeGlow: Phaser.GameObjects.Image;
@@ -70,6 +71,13 @@ export class BaseView {
     this.growGlow = s.add.image(77 * TILE + 8, FLOOR_Y - 14, "glow").setDepth(DEPTH.fx).setTint(0xff8ad8).setScale(1.6, 0.8).setAlpha(0).setBlendMode(Phaser.BlendModes.ADD);
     s.add.image(87 * TILE + 6, FLOOR_Y, "water_tank").setOrigin(0.5, 1).setDepth(DEPTH.propsBack - 1);
     this.pot = s.add.image(62 * TILE + 10, FLOOR_Y, "pot_plant").setOrigin(0.5, 1).setDepth(DEPTH.propsBack).setVisible(false);
+    // Phase 5: Laika's room fills with souvenirs of the adventure (no placing, they just appear).
+    this.decor = {
+      shelf: s.add.image(58 * TILE, FLOOR_Y - 30, "deco_shelf").setOrigin(0.5, 1).setDepth(DEPTH.propsBack - 1).setVisible(false),
+      patch: s.add.image(56 * TILE + 4, FLOOR_Y - 40, "deco_patch").setOrigin(0.5, 1).setDepth(DEPTH.propsBack - 1).setVisible(false),
+      photo: s.add.image(60 * TILE, FLOOR_Y - 34, "deco_photo").setOrigin(0.5, 1).setDepth(DEPTH.propsBack - 1).setVisible(false),
+      rover: s.add.image(63 * TILE + 4, FLOOR_Y, "deco_rover").setOrigin(0.5, 1).setDepth(DEPTH.propsBack).setVisible(false),
+    };
 
     // ---- surface: greenhouse dome over the grow room, vent and mast on the habitat roof ----
     const domeX = 73 * TILE + 8;
@@ -113,6 +121,7 @@ export class BaseView {
     this.growLamp.setTexture(growOn ? "grow_lamp_on" : "grow_lamp_off");
     this.growGlow.setAlpha(growOn ? 0.35 : 0);
     this.pot.setVisible(st.flags.cropHarvested);
+    for (const [k, on] of Object.entries(habitatDecor(st))) this.decor[k as keyof typeof this.decor].setVisible(on);
     this.dome.setVisible(st.flags.growPowered || st.flags.seedsPlanted);
     this.domePlants.setVisible(this.dome.visible && look.domeStage > 0);
     if (look.domeStage > 0) this.domePlants.setTexture(`dome_plants_${look.domeStage}`);

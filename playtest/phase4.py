@@ -195,9 +195,15 @@ DEPTHS_WEST = (100, 86, 68, 48, 44, 40, 36, 39, 46, 52, 23)
 
 
 async def answer_call(bot, pg):
-    await bot.walk_to(231)
-    await bot.interact("beacon")
-    await pg.wait_for_timeout(500)
+    """Phase 5: the station call arrives by itself after Mission 03; only press the console if it hasn't."""
+    for _ in range(15):
+        if (await S(pg))["flags"].get("m4Briefed"):
+            break
+        await pg.wait_for_timeout(300)
+    if not (await S(pg))["flags"].get("m4Briefed"):
+        await bot.walk_to(231)
+        await bot.interact("beacon")
+        await pg.wait_for_timeout(500)
     await bot.close_trans()
     await pg.wait_for_timeout(600)
 
@@ -249,61 +255,60 @@ async def mission04(bot, pg, prefix="H", shots=True):
     q = await bot.P()
     ok(f"{prefix}: habitat stairs lead to the lower level", await MAP(pg) == "surface" and 26 <= q["row"] <= 30 and 40 <= q["col"] <= 88, str(q))
     await snap("04_habitat_interior")
-    await bot.walk_to(68)
-    await use(bot, "recycler")
+    # Phase 5 flow: the pump is dug up first, then one press fixes and starts life support.
     await bot.walk_to(56)
     await bot.tap("KeyF")
     await pg.wait_for_timeout(1500)
     await bot.walk_to(55)
     await use(bot, "buried_cartridge", 1300)
     await bot.walk_to(68)
-    await use(bot, "recycler")
-    await bot.walk_to(71)
-    await use(bot, "recycler_power")
-    await bot.walk_to(68)
     await use(bot, "recycler", 1200)
     ok(f"{prefix}: recycler running", (await S(pg))["flags"]["recyclerOn"])
     await snap("05_recycler_running")
-    await bot.walk_to(84)
-    await use(bot, "water_processor")
-    await bot.walk_to(74)
-    await use(bot, "grow_power")
     await bot.walk_to(64)
     await use(bot, "habitat_storage")
-    # Shelter: wake the monitor, bark at both probes.
-    await bot.walk_to(44)
-    await use(bot, "shelter_terminal", 900)
-    await bark_at(bot, 46)
-    await snap("06_radiation_shelter")
-    await stairs_up(bot)
-    await bark_at(bot, 50)
     # Coupling from the core drill in the Frozen Depths (survey lift both ways).
+    await stairs_up(bot)
     await bot.walk_to(81)
     await bot.interact("outpost_lift")
     await wait_map(pg, "depths")
     await bot.walk_to(22)
     await use(bot, "sampler")
-    ok(f"{prefix}: melt-line coupling taken from the drill", (await S(pg))["inventory"]["waterCoupling"] == 1)
+    ok(f"{prefix}: pipe connector taken from the drill", (await S(pg))["inventory"]["waterCoupling"] == 1)
     await bot.walk_to(12)
     await bot.interact("depths_lift")
     await wait_map(pg, "surface")
     await stairs_down(bot)
     await bot.walk_to(84)
     await use(bot, "water_processor", 1200)
-    ok(f"{prefix}: water circulation restored", (await S(pg))["flags"]["waterRestored"])
+    st = await S(pg)
+    ok(f"{prefix}: water restored and grow valve opened in one step", st["flags"]["waterRestored"] and st["flags"]["growValveOpen"])
     await snap("07_water_circulation")
-    await bot.walk_to(80)
-    await use(bot, "grow_valve")
     await bot.walk_to(77)
-    await use(bot, "planter")
     await use(bot, "planter", 1000)
     st = await S(pg)
-    ok(f"{prefix}: greenhouse planted and lit", st["flags"]["seedsPlanted"] and st["flags"]["growLightsOn"])
+    ok(f"{prefix}: planting also turns the grow lights on", st["flags"]["seedsPlanted"] and st["flags"]["growLightsOn"])
     await snap("08_greenhouse_planted")
-    await bot.walk_to(44)
-    await use(bot, "shelter_terminal", 1200)
+    # Shelter: wake the monitor, bark at both probes (the second reading finishes it).
+    for _ in range(3):
+        if (await S(pg))["flags"]["shelterInspected"]:
+            break
+        await bot.walk_to(44)
+        await use(bot, "shelter_terminal", 900)
+    for _ in range(3):
+        if (await S(pg))["flags"]["probeInRead"]:
+            break
+        await bark_at(bot, 46)
+    await snap("06_radiation_shelter")
+    await stairs_up(bot)
+    for _ in range(3):
+        if (await S(pg))["flags"]["probeOutRead"]:
+            break
+        await bark_at(bot, 50)
     st = await S(pg)
-    ok(f"{prefix}: radiation shelter ready", st["flags"]["shelterRestored"])
+    ok(f"{prefix}: both probes read", st["flags"]["probeInRead"] and st["flags"]["probeOutRead"], str({k: st["flags"][k] for k in ("shelterInspected", "probeInRead", "probeOutRead")}))
+    st = await S(pg)
+    ok(f"{prefix}: radiation shelter ready after the second bark", st["flags"]["shelterRestored"])
     # LIGHTS OUT starts a few seconds after the last facility comes online.
     for _ in range(20):
         if (await S(pg))["flags"]["lightsOutStarted"]:
@@ -312,6 +317,7 @@ async def mission04(bot, pg, prefix="H", shots=True):
     ok(f"{prefix}: LIGHTS OUT starts at the outpost", (await S(pg))["flags"]["lightsOutStarted"])
     await pg.wait_for_timeout(800)
     await snap("09_lights_out")
+    await stairs_down(bot)
     await bot.walk_to(52)
     await use(bot, "dist_console", 900)
     ok(f"{prefix}: the power console opens", await menu_open(pg))
@@ -338,14 +344,16 @@ async def mission04(bot, pg, prefix="H", shots=True):
         await pg.wait_for_timeout(300)
     await snap("11_finale_transmission")
     await bot.close_trans()
-    for _ in range(20):
-        if await pg.evaluate("document.querySelector('.complete-card')?.textContent?.includes('MISSION 04') || false"):
+    # Phase 5: no completion card. A milestone toast and the next chapter banner play instead.
+    banner = False
+    for _ in range(30):
+        banner = await pg.evaluate("[...document.querySelectorAll('.region-banner, .chapter-banner')].some(e => /Chapter 5|Built to Explore/i.test(e.textContent))")
+        if banner:
             break
         await pg.wait_for_timeout(300)
-    ok(f"{prefix}: MISSION 04 COMPLETE card", await pg.evaluate("document.querySelector('.complete-card')?.textContent?.includes('MISSION 04') || false"))
+    ok(f"{prefix}: no MISSION 04 COMPLETE card", not await pg.evaluate("!!document.querySelector('.complete-card')"))
+    ok(f"{prefix}: Chapter 5 banner follows", banner)
     await snap("12_mission04_complete")
-    if await pg.get_by_text("Keep exploring").count():
-        await pg.get_by_text("Keep exploring").click()
     await pg.wait_for_timeout(1200)
     await bot.walk_to(66)
     await snap("13_outpost_restored")
@@ -379,10 +387,10 @@ async def scenario_B(p):
     bot = Bot(pg)
     await inject(pg, after_m03())
     st = await S(pg)
-    ok("v3 save migrated to v4 in place", st["version"] == 4 and "eng" in st and st["eng"]["suit"] == 100, str(st.get("version")))
+    ok("v3 save migrated in place (v5 since Phase 5)", st["version"] == 5 and "eng" in st and st["eng"]["suit"] == 100, str(st.get("version")))
     ok("Mission 03 progress kept", st["flags"]["ridgeCableOpen"] and st["inventory"]["recording"] == 2)
     o = await OBJ(pg)
-    ok("objective: answer the station call", o["stage"] == "m4_call", o["primary"])
+    ok("objective: the station call (arrives by itself since Phase 5)", o["stage"] in ("m4_call", "m4_home"), o["primary"])
     hud_hidden = await pg.evaluate("document.querySelector('.hud-base').classList.contains('hidden')")
     ok("no suit meter before Mission 04 starts", hud_hidden)
     await answer_call(bot, pg)
@@ -390,7 +398,8 @@ async def scenario_B(p):
     st = await S(pg)
     o = await OBJ(pg)
     ok("Mission 04 briefed", st["flags"]["m4Briefed"] and o["stage"] == "m4_home", o["stage"])
-    ok("suit meter appears", not await pg.evaluate("document.querySelector('.hud-base').classList.contains('hidden')"))
+    # Phase 5: the suit meter is contextual (hidden while the suit is full and nothing uses energy).
+    ok("suit meter stays out of the way while the suit is full", await pg.evaluate("(() => { const m = document.querySelector('.hud-base .suit-meter, .suit-meter'); return !m || getComputedStyle(m).display === 'none' || m.classList.contains('hidden') || !!document.querySelector('.hud-base.hidden'); })()"))
     await bot.walk_to(218)
     await shot(pg, "B2_recharge_station")
     t = await bot.T()
@@ -426,9 +435,9 @@ async def scenario_C(p):
     await tp(pg, 57, 24)
     await use(bot, "base_terminal", 900)
     txt = await pg.evaluate("document.querySelector('.base-card')?.innerText || ''")
-    ok("base status: every facility running", txt.count("Running") >= 7, txt[:200].replace("\n", " | "))
+    ok("base status: every facility running", txt.count("Working") + txt.count("Ready") + txt.count("Growing") >= 7, txt[:200].replace("\n", " | "))  # Phase 5 wording
     await shot(pg, "C7_base_status_simple")
-    await pg.get_by_role("button", name="Detailed view").click()
+    await pg.get_by_role("button", name="Advanced details").click()
     await pg.wait_for_timeout(300)
     txt = await pg.evaluate("document.querySelector('.base-card')?.innerText || ''")
     ok("detailed view shows units and says they are fictional", "PU" in txt and "made-up game units" in txt)
@@ -457,6 +466,9 @@ async def scenario_D(p):
     st = await S(pg)
     o = await OBJ(pg)
     ok("save/reload mid-event keeps LIGHTS OUT", st["flags"]["lightsOutStarted"] and not st["flags"]["lightsOutBalanced"] and o["stage"] == "m4_balance", o["stage"])
+    await close_panel(pg)
+    if (await bot.P())["row"] < 26:
+        await stairs_down(bot)
     await bot.walk_to(52)
     await use(bot, "dist_console", 900)
     # Everything on does not fit: applying it does not balance the network.
@@ -534,7 +546,7 @@ async def scenario_F(p):
     bot = Bot(pg)
     s = v4(checkpoint="cp_outpost", eng={"suit": 40})
     s["abilities"]["thrusters"] = True
-    await inject(pg, s)
+    await inject(pg, s, settings={"survival": "adventure"})  # Phase 5: new players default to Relaxed
     await tp(pg, 36, 24)
 
     async def triple():
@@ -793,16 +805,19 @@ async def scenario_L(p):
     await pg.wait_for_timeout(300)
     await pg.locator("button[aria-label='Pause']").tap()
     await pg.wait_for_timeout(400)
-    await pg.get_by_role("button", name="Science journal").tap()
+    # Phase 5: the Science Journal lives in the Journal's Science tab.
+    await pg.get_by_role("button", name="Journal").tap()
+    await pg.wait_for_timeout(400)
+    await pg.get_by_role("tab", name="Science", exact=True).tap()
     await pg.wait_for_timeout(400)
     await pg.get_by_role("tab").filter(has_text="Solar").tap()
     await pg.wait_for_timeout(300)
     await pg.get_by_role("button", name="Learn more").first.tap()
     await pg.wait_for_timeout(300)
-    txt = await pg.evaluate("document.querySelector('.sci-card').innerText")
+    txt = await pg.evaluate("(document.querySelector('.sci-card') || document.querySelector('.sci-body')).innerText")
     ok("science journal entry shows real science, fiction note and a source", "In the game:" in txt and "Source:" in txt, txt[:160].replace("\n", " | "))
     await shot(pg, "L3_mobile_science_journal")
-    over = await pg.evaluate("(() => { const c = document.querySelector('.sci-card').getBoundingClientRect(); return c.right <= innerWidth + 1 && c.left >= -1; })()")
+    over = await pg.evaluate("(() => { const c = (document.querySelector('.sci-card') || document.querySelector('.journal-card') || document.querySelector('.sci-body')).getBoundingClientRect(); return c.right <= innerWidth + 1 && c.left >= -1; })()")
     ok("journal fits the phone screen width", over)
     ok("no page errors", not errs, "; ".join(errs[:3]))
     await b.close()
@@ -857,11 +872,7 @@ async def scenario_A(p):
     ok("Mission 00 completed", (await S(pg))["tutorial"]["status"] == "done")
     await mission01(bot, pg, prefix="../phase4/A0")
     ok("Mission 01 completed", (await S(pg))["flags"]["demoComplete"])
-    await pg.keyboard.press("Escape")
-    await pg.wait_for_timeout(600)
-    if await pg.evaluate("!!document.querySelector('.screen')"):
-        await pg.get_by_text("Keep exploring").click()
-        await pg.wait_for_timeout(500)
+    await pg.wait_for_timeout(1200)  # Phase 5: no completion card, play simply continues
     await m02_station_to_depths(bot, pg, shots=False)
     await m02_depths(bot, pg, shots=False)
     await m02_finish(bot, pg, shots=False)
@@ -869,11 +880,9 @@ async def scenario_A(p):
     await m03_to_ridge(bot, pg)
     await m03_ridge(bot, pg, shots=False)
     ok("Mission 03 completed", (await S(pg))["flags"]["ridgeCableOpen"])
-    if await pg.evaluate("!!document.querySelector('.screen')"):
-        await pg.get_by_text("Keep exploring").click()
-        await pg.wait_for_timeout(800)
+    await pg.wait_for_timeout(800)
     o = await OBJ(pg)
-    ok("Mission 03 leads into Mission 04", o["stage"] == "m4_call", o["stage"])
+    ok("Mission 03 leads into Mission 04", o["stage"] in ("m4_call", "m4_home"), o["stage"])
     # Mission 03 ends when the cable car starts; ride it down to the station like the hint says.
     await bot.interact("ridge_cable")
     ok("cable car rides down to the Ares Station", await wait_map(pg, "surface", 10000))

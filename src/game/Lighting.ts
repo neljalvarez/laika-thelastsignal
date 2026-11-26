@@ -25,6 +25,8 @@ export interface LightContext {
   bright: boolean;
   now: number;
   reducedMotion: boolean;
+  /** Phase 5: the Survey Headlamp widens and lengthens the beam (1 = standard lamp). */
+  lampScale?: number;
 }
 
 export const DARK_DEPTH = DEPTH.player + 2;
@@ -78,9 +80,10 @@ export class Lighting {
     // Laika's aura (always) and her headlamp.
     const px = sx(ctx.x);
     const py = sy(ctx.y - 10);
-    this.erase(ctx.headlamp ? "m" : "s", px, py, 1);
+    const ls = ctx.lampScale ?? 1;
+    this.erase(ctx.headlamp ? (ls > 1 ? "l" : "m") : "s", px, py, 1);
     if (ctx.headlamp) {
-      this.cone.setFlipX(ctx.facing < 0).setOrigin(ctx.facing < 0 ? 1 : 0, 0.5);
+      this.cone.setFlipX(ctx.facing < 0).setOrigin(ctx.facing < 0 ? 1 : 0, 0.5).setScale(ls);
       rt.erase(this.cone, px + ctx.facing * 4, py - 2);
     }
 
@@ -109,9 +112,10 @@ export class Lighting {
     const dy = y - (ctx.y - 12);
     if (dx < -8) return 0;
     const dist = Math.hypot(dx, dy);
-    if (dist > 150) return 0;
-    if (Math.abs(dy) > 10 + Math.max(0, dx) * 0.35) return 0;
-    return dist < 100 ? 1 : 1 - (dist - 100) / 50;
+    const ls = ctx.lampScale ?? 1;
+    if (dist > 150 * ls) return 0;
+    if (Math.abs(dy) > (10 + Math.max(0, dx) * 0.35) * ls) return 0;
+    return dist < 100 * ls ? 1 : 1 - (dist - 100 * ls) / (50 * ls);
   }
 
   private erase(size: "s" | "m" | "l", x: number, y: number, alpha: number): void {

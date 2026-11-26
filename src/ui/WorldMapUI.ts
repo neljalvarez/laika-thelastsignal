@@ -31,7 +31,12 @@ export interface MapView {
   target: string | null;
   objective: string;
   onClose: () => void;
+  /** Phase 5: pick a visited checkpoint as a guidance destination (never skips a requirement). */
+  onPick?: (objectId: string) => void;
 }
+
+/** Phase 5: optional map layers, off by default except checkpoints. */
+const filters = { landmarks: false, recharge: false, collected: false, names: false };
 
 export class WorldMapUI {
   private el: HTMLElement;
@@ -61,11 +66,11 @@ export class WorldMapUI {
     const head = document.createElement("div");
     head.className = "map-head";
     const h = document.createElement("h2");
-    h.textContent = "Survey Journal: World Map";
+    h.textContent = "Map";
     const where = document.createElement("p");
     const hereSec = MAPS[v.here.map].sections.find((x) => v.here.col >= x.rect.x0 && v.here.col <= x.rect.x1 && v.here.row >= x.rect.y0 && v.here.row <= x.rect.y1);
     const hereRegion = MAPS[v.here.map].regions.find((r) => v.here.col >= r.x0 && v.here.col <= r.x1) ?? MAPS[v.here.map].regions[0];
-    where.textContent = `You are in: ${hereRegion.name}${hereSec ? `, ${hereSec.name}` : ""}`;
+    where.textContent = `You are in: ${hereRegion.name}${hereSec && hereSec.name !== hereRegion.name ? `, ${hereSec.name}` : ""}`;
     head.append(h, where);
 
     const box = svg("svg", { viewBox: "0 0 120 62", class: "map-svg", role: "img", "aria-label": "Map of discovered regions" });
@@ -118,7 +123,7 @@ export class WorldMapUI {
         }
       }
       for (const lm of def.landmarks) {
-        if (!s.discovered.landmarks.includes(lm.id)) continue;
+        if (!filters.landmarks || !s.discovered.landmarks.includes(lm.id)) continue;
         const x = f.x + ((lm.col + 0.5) / def.w) * f.w;
         const y = f.y + (lm.row / def.h) * f.h;
         box.append(svg("text", { x: x - 0.8, y: y + 0.8, class: "map-sym lm" }, "◆"));
@@ -127,10 +132,21 @@ export class WorldMapUI {
       for (const o of def.objects) {
         if (o.kind !== "checkpoint" || o.hidden || !s.visitedCheckpoints.includes(o.id)) continue;
         const p = pos(o.id);
-        if (p) box.append(svg("text", { x: p[0] - 0.7, y: p[1] + 0.6, class: "map-sym cp" }, "▲"));
+        if (!p) continue;
+        const t = svg("text", { x: p[0] - 0.7, y: p[1] + 0.6, class: `map-sym cp${v.onPick ? " pick" : ""}` }, "▲");
+        t.append(svg("title", {}, "Go here"));
+        if (v.onPick) t.addEventListener("click", () => v.onPick!(o.id));
+        box.append(t);
+      }
+      if (filters.collected) {
+        for (const o of def.objects) {
+          if ((o.kind !== "pickup" && o.kind !== "buried") || !s.collected.includes(o.id)) continue;
+          const p = pos(o.id);
+          if (p) box.append(svg("text", { x: p[0] - 0.5, y: p[1] + 0.5, class: "map-tiny" }, "✓"));
+        }
       }
       // Phase 4: recharge posts Laika has seen (a crossed bolt = not working yet).
-      if (s.flags.m4Briefed) {
+      if (s.flags.m4Briefed && filters.recharge) {
         for (const o of def.objects) {
           if (o.kind !== "recharge" || !objSeen(o.id)) continue;
           const p = pos(o.id);
@@ -163,7 +179,7 @@ export class WorldMapUI {
       box.append(line);
       const mx = (a[0] + b[0]) / 2;
       const my = (a[1] + b[1]) / 2;
-      box.append(svg("text", { x: mx + 0.6, y: my, class: "map-tiny" }, `${c.name}${open ? (c.shortcut ? " ⇆ shortcut" : "") : " (locked)"}`));
+      if (filters.names) box.append(svg("text", { x: mx + 0.6, y: my, class: "map-tiny" }, `${c.name}${open ? (c.shortcut ? " ⇆ shortcut" : "") : " (locked)"}`));
       const far = objSeen(c.a.object) ? c.b : c.a;
       if (!visited(far.map)) {
         const p = pos(far.object)!;
@@ -192,7 +208,28 @@ export class WorldMapUI {
 
     const legend = document.createElement("p");
     legend.className = "map-legend";
-    legend.textContent = `● Laika   ★ Mission   ▲ Checkpoint   ${s.flags.m4Briefed ? "ϟ Recharge   " : ""}◆ Landmark   ? Unexplored   ━ green: shortcut   ╌ dashed: locked`;
+    legend.textContent = `● You   ★ Goal   ▲ Checkpoint (tap to go)   ━ Shortcut`;
+    const fl = document.createElement("div");
+    fl.className = "map-filters";
+    const opts: Array<[keyof typeof filters, string]> = [
+      ["landmarks", "◆ Landmarks"],
+      ["recharge", "ϟ Recharge"],
+      ["collected", "✓ Collected"],
+      ["names", "Route names"],
+    ];
+    for (const [k, label] of opts) {
+      if (k === "recharge" && !s.flags.m4Briefed) continue;
+      const lab = document.createElement("label");
+      const cb = document.createElement("input");
+      cb.type = "checkbox";
+      cb.checked = filters[k];
+      cb.addEventListener("change", () => {
+        filters[k] = cb.checked;
+        this.show(v);
+      });
+      lab.append(cb, document.createTextNode(label));
+      fl.append(lab);
+    }
     const goal = document.createElement("p");
     goal.className = "map-goal";
     goal.textContent = `★ ${v.objective}`;
@@ -200,7 +237,7 @@ export class WorldMapUI {
     close.className = "px-btn";
     close.textContent = "Close map";
     close.addEventListener("click", () => v.onClose());
-    card.append(head, box, goal, legend, close);
+    card.append(head, box, goal, legend, fl, close);
     this.el.replaceChildren(card);
     this.el.classList.remove("hidden");
     close.focus();

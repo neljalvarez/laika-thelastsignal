@@ -1,0 +1,56 @@
+{
+ "title_new": {
+  "chars": 145,
+  "words": 27,
+  "widgets": 0,
+  "text": "LAIKA THE LAST SIGNAL One small dog. One lost signal. An entire planet to explore. \u25b6 New Game Settings About & Credits In loving memory of Laika."
+ },
+ "tutorial": {
+  "chars": 105,
+  "words": 29,
+  "widgets": 3,
+  "text": "\u25a6 ? II MISSION 00 \u00b7 FIRST PAWPRINTS Skip tutorial Let's get moving! A / D or \u2190 / \u2192 to move. \u25c6 \u25cb \u25cb \u25cb \u25cb \u25cb \u25cb"
+ },
+ "gameplay_m01": {
+  "chars": 128,
+  "words": 25,
+  "widgets": 7,
+  "text": "Restore the outpost radio \u25be Details \u25b6 Find spare parts (Metal 1/2, Electronics 0/1): sniff east of the outpost. F SCAN \u00d71 \u25a6 ? II"
+ },
+ "workstation": {
+  "chars": 161,
+  "words": 30,
+  "widgets": 8,
+  "text": "Restore the outpost radio \u25be Details \u25b6 Find spare parts (Metal 1/2, Electronics 0/1): sniff east of the outpost. F SCAN \u00d71 \u25a6 ? II E Inspect workstation (No power)"
+ },
+ "workstation_open": {
+  "chars": 191,
+  "words": 34,
+  "widgets": 8,
+  "text": "Restore the outpost radio \u25be Details \u25b6 Find spare parts (Metal 1/2, Electronics 0/1): sniff east of the outpost. F SCAN \u00d71 \u25a6 ? II E Inspect workstation (No power) Fabricator offline. No power."
+ },
+ "map": {
+  "chars": 589,
+  "words": 105,
+  "widgets": 8,
+  "text": "Restore the outpost radio \u25be Details \u25b6 Find spare parts (Metal 1/2, Electronics 0/1): sniff east of the outpost. F SCAN \u00d71 \u25a6 ? II E Inspect workstation (No power) Fabricator offline. No power. Survey Journal: World Map You are in: Landing Outpost, Landing Outpost \u2193 underground \u2191 high ground SURFACE: Outpost \u00b7 Canyon \u00b7 Station \u25c6 Laika's Ship \u25c6 Outpost Radio Mast \u25b2 \u25b2 FROZEN DEPTHS ? Survey Lift (lock"
+ },
+ "m01_end": {
+  "chars": 410,
+  "words": 76,
+  "widgets": 7,
+  "text": "Mission 02: Beneath the Red \u25be Details \u25b6 Ares Station: check the relay logs at the signal console. E SCAN \u25a6 ? II E Check the relay logs MISSION 01 COMPLETE A Signal in the Silence [ ] Geological samples: 0/3 [ ] Secret Golden Treat still hidden [ ] Thruster Boots not built Time: about 30 min Someone out there knows Laika's name... Mission 02 begins: check the signal console again. Keep exploring Ti"
+ },
+ "base_m04": {
+  "chars": 168,
+  "words": 38,
+  "widgets": 12,
+  "text": "Mission 04: A Place to Call Home \u25be Details \u25b6 Lower Level: sniff out the spare pump cartridge in the maintenance bay. F SCAN LAMP \u00d75 \u00d72 \u00d71 \u25a6 ? II \u03df SUIT 70% \u2600 BASE 72% \u25b2"
+ },
+ "mobile_m01": {
+  "chars": 128,
+  "words": 25,
+  "widgets": 7,
+  "text": "Restore the outpost radio \u25be Details \u25b6 Find spare parts (Metal 1/2, Electronics 0/1): sniff east of the outpost. F SCAN \u00d71 \u25a6 ? II"
+ }
+}

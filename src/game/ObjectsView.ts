@@ -11,7 +11,7 @@ import { objectPos, type WorldObject } from "../data/world";
 import type { Interaction } from "../systems/interactions";
 import { relayOnline } from "../systems/puzzles";
 import type { TutorialState } from "../systems/tutorial";
-import { isPowered, type GameState } from "../systems/state";
+import { gearReady, isPowered, type GameState } from "../systems/state";
 import { DEPTH } from "./WorldView";
 import { facilityTexture } from "./facilityLook";
 import type { PowerStatus } from "../systems/engineering";
@@ -334,8 +334,22 @@ export class ObjectsView {
       }
     }
     this.syncCables(st, false);
+    this.syncGear(st);
     if (powered && !this.poweredShown) this.showPower(false);
     if (st.flags.commsOnline) this.startReceiverBlink();
+  }
+
+  /** Phase 5: things that only exist for Laika once she has the right gear (booster caches, survey marks). */
+  syncGear(st: GameState): void {
+    for (const v of this.views.values()) {
+      if (!v.o.needs || !v.sprite) continue;
+      const on = gearReady(st, v.o.needs) && !st.collected.includes(v.o.id);
+      v.sprite.setVisible(on);
+      if (on && v.o.kind === "pickup" && !v.sprite.getData("glint")) {
+        v.sprite.setData("glint", true);
+        v.sprite.setTint(0xffe9a8);
+      }
+    }
   }
 
   /** Phase 4: base machines and recharge posts follow the engineering state (called every engine step). */

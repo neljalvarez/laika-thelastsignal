@@ -79,7 +79,7 @@ export function getRegionInteraction(o: WorldObject, s: GameState, ctx: Interact
     case "transit":
       return transitInteraction(o, s);
     case "headlampKit":
-      return s.abilities.headlamp ? null : { verb: "Fix the survey lamp", detail: "Clip it to your helmet" };
+      return s.abilities.headlamp ? null : { verb: "Fix the lamp", detail: "Clip it to your helmet" };
     case "lightSensor":
       if (s.flags.passageOpen) return null;
       return s.abilities.headlamp ? { verb: "Shine your headlamp", detail: "Light sensor" } : { verb: "Inspect light sensor", detail: "It needs a bright light" };
@@ -91,7 +91,7 @@ export function getRegionInteraction(o: WorldObject, s: GameState, ctx: Interact
       return { verb: "Inspect junction", detail: s.flags.junctionInspected ? "Needs a power coupling" : undefined };
     case "sampler":
       if (!s.flags.circuitRestored) return { verb: "Inspect core drill", detail: "No power" };
-      return s.collected.includes("sampler") ? { verb: "Check core drill" } : { verb: "Run the core drill" };
+      return s.collected.includes("sampler") ? { verb: "Check core drill" } : { verb: "Run the drill" };
     case "locker":
       return s.flags.lockerOpened ? null : { verb: "Open salvage locker" };
     case "relay":

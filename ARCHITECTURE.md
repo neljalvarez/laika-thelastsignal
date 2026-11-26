@@ -34,6 +34,8 @@ src/
       registry.ts     MAPS, CONNECTIONS (freight lift, survey lift, North Access, cable car), global object lookup
     engineering.ts    Phase 4: facilities, consumers, demand, criticality, and EVERY balance value (ENGINEERING, SUIT)
     science.ts        Phase 4: Science Journal categories and entries (real science, fiction note, source)
+    equipment.ts      Phase 5: the five pieces of equipment (cost in Metal/Circuits, one benefit line, icon,
+                      requirement), GEAR effect values, and the five cosmetics with how to unlock them
   systems/            PURE TypeScript simulation (no Phaser, no DOM) - unit-tested
     state.ts          GameState (what is saved) + derived helpers (isPowered)
     interactions.ts   getInteraction() / performInteraction() -> Effect[]; barkEffects()
@@ -55,6 +57,12 @@ src/
     worldBuilder.ts   terrain ops -> tile grids
     navigation.ts     tile-level reachability solver (level validation)
     save.ts           versioned save, sanitize, migrate, repairState (anti soft-lock)
+    chapters.ts       Phase 5: CHAPTERS, chapterOfStage(), autoAdvance() (the next chapter's call arrives by itself)
+    crafting.ts       Phase 5: workbench cards and statuses, craft() (validate -> spend once -> Effect[]), equipment
+                      effect helpers (sniff/reveal radius, suit max, thruster cost, lamp), cosmetics, lookOf/lookKey
+    waypoints.ts      Phase 5: route-aware objective guidance (BFS over standing cells + ladder portals, nearest open
+                      lift for other maps) -> one Waypoint
+    notifications.ts  Phase 5: NoteQueue (priority warn > milestone > item > info, dedupe, merge, max 2 on screen)
     settings.ts       preferences, bindings, rebind, key labels
   art/                procedural pixel art: painter, palette, Laika parts + animations, tileset, props, icons,
                       backgrounds, 3x5 font, registerTextures (generates every texture at boot)
@@ -77,10 +85,12 @@ src/
   ui/                 UI.ts (HUD, objective panel, signal meter, captions, transmissions, menus, controls,
                       settings, touch) + TutorialUI.ts (stage card, assist offer, mission title cards)
                       + WorldMapUI.ts (survey-journal world map, HTML/SVG) + BaseUI.ts (Phase 4: suit meter,
-                      power chip, base status simple/detailed, power console, Science Journal) + ui.css
+                      power chip, base status simple/detailed, power console, Science Journal)
+                      + CraftingUI.ts (Phase 5 workbench cards) + JournalUI.ts (Phase 5 Gear / Science / Radio /
+                      Progress tabs) + ui.css
 tests/                Vitest: world validation, mission, saves, movement, settings/sniff/inventory, tutorial, phase2
 playtest/             Python + Playwright browser play-tests (playthrough.py = Phase 1 route, phase2.py = A-H,
-                      phase3.py = A-K, phase4.py = A-M)
+                      phase3.py = A-K, phase4.py = A-M, phase5.py = A-O + SNAP before/after measurements)
 ```
 
 ## Data flow (one frame)
@@ -99,6 +109,48 @@ GameScene ── ObjectsView.findTarget() ── getInteraction()  ──> UI.se
 - **No per-frame UI work.** The HTML overlay is updated only on change (prompt key, objective key, inventory).
 - **Derived, not stored.** The objective, "powered", and receiver states are computed from flags, so saves cannot
   drift out of sync with the UI.
+
+## Phase 5: guidance, chapters, notifications and crafting
+
+**Chapters.** `chapterOfStage()` maps the objective's stage prefix to a chapter (Prologue = tutorial, 1 = Mission
+01 ... 5 = Mission 05); `getObjective()` adds it as `objective.chapter`. `GameScene.chapterCheck()` compares it each
+HUD refresh and, when it goes up, shows a milestone toast (the chapter's short "done" line) and then the chapter
+banner (the region banner element). Going back never announces anything. There are no completion cards any more.
+`autoAdvance(s)` is called from `phase4Checks` when no transmission is open and at least 1.4 s after the last one
+closed; it starts Chapter 2 (relay logs), Chapter 4 (`answerStationCall`) and Chapter 5 (`startChapter5`) without a
+console trip. Transmissions are passive (non-blocking) by default and logged in `seen` as `tx:<id>` so the Journal's
+Radio tab can show the full text (`Transmission.full`).
+
+**Waypoints.** `nextWaypoint(grid, state, map, at, targetId)` returns one point:
+1. other map: `routeTo(..., fromCol)` picks the next transit object over open connections, preferring the one with
+   the shorter trip from Laika's column (survey lift at the outpost, freight lift at the station); locked routes
+   give `null` (no arrow through a sealed door);
+2. same map: `findPath` (BFS over `neighbours()` standing cells with Laika's real jump: basic or boots) plus
+   `portals()` (habitat ↔ lower_stairs once Chapter 4 has started). If the path uses a ladder, the ladder is the
+   waypoint; otherwise a point 9 cells along the path, or the target when it is close;
+3. no path (the solver is conservative): the target itself.
+`GameScene.updateGuidance()` recomputes it every 450 ms and draws a bobbing marker on screen or an edge arrow off
+screen (no bob with reduced motion), plus the objective box's direction arrow. Settings `guidance`
+(guided / explorer / minimal) and the hint level decide visibility; the ? button forces it for 9 s; a checkpoint
+picked on the map becomes a temporary custom target. `window.__laika.waypoint()` exposes it for tests.
+
+**Notifications.** `UI.toast(text, tone, icon?, kind?)` pushes into a `NoteQueue`; `pumpNotes()` shows what
+`take(now)` allows. Duplicates within 5 s are dropped, item pick-ups merge, the queue holds 4 and drops info/items
+first, never warnings or milestones.
+
+**HUD.** `setObjective` renders a compact box (arrow + one line + key); the title, steps and Details button only in
+the detailed HUD (`body.hud-detailed`). Inventory peeks for a few seconds when it changes (`peekInventory`); the suit
+meter and power chip are shown by `hudContext()` only when relevant (low energy, after a boosted jump, at the base,
+during LIGHTS OUT).
+
+**Crafting.** `craftCard()` → status `built | ready | missing | locked | noPower`; `craft()` re-validates, spends once
+and returns effects (`spend`, `anim`, `world: crafted`, `save`). Recipes may only use `CRAFT_MATERIALS` (Metal,
+Circuits) and never `critical` items (`recipeIsSafe`, unit-tested). Equipment effects are read where they matter:
+`sniffRadiusFactor`/`revealRadiusFactor` in the scanner, `suitMaxOf`/`costFor` in survival, `headlampFactor` in
+`Lighting` (`lampScale`). World objects can carry `needs: <equipment>`; `gearReady()` hides them from pickups, digging
+and the scanner until the gear exists (`ObjectsView.syncGear`). Laika's look: `lookOf(state)` → `lookKey()` →
+`ensureLaikaLook()` generates a sprite sheet and animations for that key on demand (gear pixels + palette swaps for
+cosmetics). Habitat souvenirs come from `facilityLook.habitatDecor()` (pure).
 
 ## Engineering simulation (Phase 4)
 
@@ -231,6 +283,13 @@ GameScene.onTutorialAdvance ──> TutorialUI.show(stage, {device, keys}) + hig
   (later milestones imply earlier ones; the comms module is restored if lost; solar parts topped up if the world can
   no longer supply them). Corrupt or future-version saves are backed up and the title screen says so.
 - Autosave on checkpoints, pickups, repairs, pause, tab hide and every 20 s.
+- **Version 5 (Phase 5).** Adds `gear: { built, blueprints, wear }` and four flags (`m5Briefed`, `m5Blueprint`,
+  `beaconFound`, `m5Complete`) plus the `navBeacon` item. `migrate` v4 → v5 adds an empty gear block (the Thruster
+  Boots stay an ability, so Phase 1–4 boots are kept); `sanitize` keeps only known equipment / cosmetic ids and caps
+  suit energy at 100 unless the Reserve Battery is built (then 150). `repairState` implies earlier Mission 05 steps
+  from later ones, grants the booster blueprint after the briefing and every blueprint after Mission 05, keeps the
+  beacon unique, and applies Phase 5's merged Mission 04 steps (battery ⇒ rooms powered, water ⇒ grow valve open,
+  both probes ⇒ shelter restored) so a v4 save made halfway through never waits on a step that no longer exists.
 - **Version 4 (Phase 4).** Adds `eng: { battery, alloc { water, greenhouse, research }, growMs, suit, dusty }`,
   `science: string[]`, 26 Mission 04 flags and five items (regulator, pump cartridge, melt-line coupling, seeds,
   power cell). `migrate` v3 → v4 adds a fresh engineering block (battery 0, everything allowed, suit full) and an
@@ -262,7 +321,11 @@ GameScene.onTutorialAdvance ──> TutorialUI.show(stage, {device, keys}) + hig
 - **New ability:** add an `AbilityId`, unlock it from an effect, and read it in `Player` / `stepMovement`
   (see `thrusters` for a complete example: recipe → effect → texture swap → air jump).
 - **New mission:** write another `getObjective`-style function over new flags; add `FlagId`s and a save
-  migration step (bump `STATE_VERSION`, now 4, and add a case in `migrate`).
+  migration step (bump `STATE_VERSION`, now 5, and add a case in `migrate`). Give its stages a prefix and a
+  `CHAPTERS` entry, and start it from `autoAdvance` rather than a console.
+- **New equipment (Phase 5):** add an `EquipmentId` and an `EQUIPMENT` entry (Metal/Circuits only), an icon in
+  `EQ_RAW`, an effect helper in `crafting.ts` read where it matters, a pixel change in `art/laika.ts`
+  (`LaikaGearLook`), and optionally a `needs` cache in a region.
 - **New facility (Phase 4):** add it to `FACILITIES` (demand, critical, dependsOn), give `isRestored` a rule, add a
   `FacilityPart`, its rules in `facilities.ts`, textures in `art/baseProps.ts` and a case in `facilityLook.ts`.
 - **New tutorial stage:** add an id to `TutorialStageId` and `STAGE_ORDER`, a `TutorialStageDef` in
@@ -272,7 +335,13 @@ GameScene.onTutorialAdvance ──> TutorialUI.show(stage, {device, keys}) + hig
 
 ## Testing
 
-- `npm test`: 195 unit tests. Phase 4 adds `phase4.test.ts` (42: solar, battery charge/discharge/capacity,
+- `npm test`: 233 unit tests. Phase 5 adds `phase5.test.ts` (36: chapter list and stage mapping, Mission 01 → 02,
+  03 → 04 and 04 → 05 transitions with no console trip, every boundary has a next objective, waypoints through the
+  ladder / to the nearest lift / none through locked routes / only on standable cells, notification priority, dedupe,
+  merging and caps, safe recipes, crafting success / insufficient parts / no power / no blueprint / duplicates,
+  mission items untouched, equipment effects, gated caches, material supply, reachability of every new part with
+  basic jumps, cosmetics, Mission 05 start to finish, v4 → v5 migration and sanitising, word budgets for objectives,
+  prompts, item names, tutorial steps and benefits, settings defaults). Phase 4 had 195: Phase 4 adds `phase4.test.ts` (42: solar, battery charge/discharge/capacity,
   distribution and protected critical systems, facility dependencies, recycler, water, greenhouse, suit energy,
   recharging, zero-energy recovery, Survival Assistance, fixed-step timing and clamping, no offline or paused
   progress, Mission 04 in two orders, LIGHTS OUT in every mode, v1/v2/v3 → v4 migration, corrupted engineering
@@ -288,4 +357,6 @@ GameScene.onTutorialAdvance ──> TutorialUI.show(stage, {device, keys}) + hig
   device prompts), hints, animation states and gait phases.
 - Browser play-tests run in headless Chrome with Playwright driving real keyboard and touch input:
   `playtest/playthrough.py` (Phase 1 route), `playtest/phase2.py` (Phase 2 scenarios A–H) and
-  `playtest/phase3.py` (Phase 3 scenarios A–K) and `playtest/phase4.py` (Phase 4 scenarios A–M). See the handoffs.
+  `playtest/phase3.py` (Phase 3 scenarios A–K), `playtest/phase4.py` (Phase 4 scenarios A–M, Mission 04 route
+  updated for Phase 5's merged steps) and `playtest/phase5.py` (Phase 5 scenarios A–O and `SNAP=<label>`
+  text/HUD measurements). See the handoffs.

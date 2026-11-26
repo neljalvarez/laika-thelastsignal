@@ -304,13 +304,9 @@ async def scenario_A(p):
     await mission01(bot, pg, prefix="../phase3/A0")
     st = await S(pg)
     ok("Mission 01 completed", st["flags"]["demoComplete"])
-    await pg.keyboard.press("Escape")  # close the completion card ("Keep exploring" = resume)
-    await pg.wait_for_timeout(600)
-    if await pg.evaluate("!!document.querySelector('.screen')"):
-        await pg.get_by_text("Keep exploring").click()
-        await pg.wait_for_timeout(500)
+    await pg.wait_for_timeout(1200)  # Phase 5: no completion card, play simply continues
     o = await pg.evaluate("window.__laika.objective()")
-    ok("Mission 01 leads straight into Mission 02", o["stage"] == "m2_brief", o["primary"])
+    ok("Mission 01 leads straight into Mission 02", o["stage"].startswith("m2_"), o["primary"])
     await m02_station_to_depths(bot, pg)
     await m02_depths(bot, pg)
     await m02_finish(bot, pg)
@@ -320,7 +316,7 @@ async def scenario_A(p):
     await m03_ridge(bot, pg)
     st = await S(pg)
     ok("Mission 03 completed (cable car started)", st["flags"]["ridgeCableOpen"], str({k: st["flags"][k] for k in ["relayASwept", "cellInstalled", "relayCFound", "relayNetworkOnline", "signalTraced"]}))
-    ok("completion screen shown", await pg.evaluate("document.querySelector('.complete-card')?.textContent?.includes('MISSION 03') || false"))
+    ok("no completion screen (Phase 5: chapter banner instead)", not await pg.evaluate("!!document.querySelector('.complete-card')"))
     ok("no page errors", not errs, "; ".join(errs[:3]))
     await b.close()
 
@@ -355,7 +351,7 @@ async def scenario_B(p):
     ok("Mission 01 still complete, tutorial not forced", st["flags"]["demoComplete"] and st["tutorial"]["status"] == "done")
     ok("map back-filled from old checkpoints", "s_station" in st["discovered"]["sections"] and "s_outpost" in st["discovered"]["sections"], str(st["discovered"]["sections"]))
     o = await pg.evaluate("window.__laika.objective()")
-    ok("continues with Mission 02", o["stage"] == "m2_brief", o["primary"])
+    ok("continues with Mission 02", o["stage"].startswith("m2_"), o["primary"])
     await m02_station_to_depths(bot, pg, shots=False)
     ok("reaches Frozen Depths", await MAP(pg) == "depths")
     await bot.walk_to(124)
@@ -410,7 +406,6 @@ async def scenario_D(p, settings=None, prefix="D"):
         if os.path.exists(OUT + name + ".png"):
             os.replace(OUT + name + ".png", OUT + name.replace("A", prefix, 1) + ".png")
     # Ride the cable car down to the station (the second shortcut).
-    await pg.get_by_text("Keep exploring").click()
     await pg.wait_for_timeout(600)
     await bot.interact("ridge_cable")
     await wait_map(pg, "surface")

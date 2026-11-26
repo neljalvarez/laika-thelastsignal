@@ -14,7 +14,9 @@ export type ItemId =
   | "recyclerPart"
   | "waterCoupling"
   | "seeds"
-  | "powerCell";
+  | "powerCell"
+  // Phase 5: the Chapter 5 expedition component (unique, never crafted or spent on gear)
+  | "navBeacon";
 
 export interface ItemDef {
   id: ItemId;
@@ -32,7 +34,7 @@ export interface ItemDef {
 export const ITEMS: Record<ItemId, ItemDef> = {
   metal: {
     id: "metal",
-    name: "Salvaged Metal",
+    name: "Metal",
     short: "Metal",
     blurb: "Bent but useful. Good for repairs.",
     critical: false,
@@ -40,23 +42,23 @@ export const ITEMS: Record<ItemId, ItemDef> = {
   },
   electronics: {
     id: "electronics",
-    name: "Electronic Component",
-    short: "Electronics",
+    name: "Circuit",
+    short: "Circuit",
     blurb: "A circuit board that still works.",
     critical: false,
     alwaysShow: false,
   },
   commsModule: {
     id: "commsModule",
-    name: "Comms Module",
-    short: "Comms Module",
+    name: "Radio Part",
+    short: "Radio Part",
     blurb: "The receiver's missing heart!",
     critical: true,
     alwaysShow: false,
   },
   sample: {
     id: "sample",
-    name: "Geological Sample",
+    name: "Rock Sample",
     short: "Samples",
     blurb: "A piece of Mars' history.",
     critical: false,
@@ -72,15 +74,15 @@ export const ITEMS: Record<ItemId, ItemDef> = {
   },
   coupling: {
     id: "coupling",
-    name: "Power Coupling",
-    short: "Coupling",
+    name: "Power Part",
+    short: "Power Part",
     blurb: "A chunky connector. The junction needs one!",
     critical: true,
     alwaysShow: false,
   },
   relayCell: {
     id: "relayCell",
-    name: "Relay Power Cell",
+    name: "Relay Cell",
     short: "Relay Cell",
     blurb: "Still charged. It belongs to the Echo Ridge relays.",
     critical: true,
@@ -88,7 +90,7 @@ export const ITEMS: Record<ItemId, ItemDef> = {
   },
   recording: {
     id: "recording",
-    name: "Research Recording",
+    name: "Recording",
     short: "Recordings",
     blurb: "A crew member's voice, saved for later.",
     critical: false,
@@ -96,47 +98,55 @@ export const ITEMS: Record<ItemId, ItemDef> = {
   },
   roverPart: {
     id: "roverPart",
-    name: "Rover R-2 Part",
-    short: "R-2 Parts",
+    name: "Rover Part",
+    short: "Rover Parts",
     blurb: "A piece of the lost rover. One day she could roll again.",
     critical: false,
     alwaysShow: false,
   },
   regulator: {
     id: "regulator",
-    name: "Battery Regulator",
-    short: "Regulator",
+    name: "Battery Part",
+    short: "Battery Part",
     blurb: "A spare from the ship. The battery station needs it.",
     critical: true,
     alwaysShow: false,
   },
   recyclerPart: {
     id: "recyclerPart",
-    name: "Pump Cartridge",
-    short: "Cartridge",
+    name: "Pump",
+    short: "Pump",
     blurb: "The recycler's missing pump cartridge.",
     critical: true,
     alwaysShow: false,
   },
   waterCoupling: {
     id: "waterCoupling",
-    name: "Melt-Line Coupling",
-    short: "Melt Line",
+    name: "Pipe Connector",
+    short: "Pipe Connector",
     blurb: "Connects melted ice to the outpost's water system.",
     critical: true,
     alwaysShow: false,
   },
   seeds: {
     id: "seeds",
-    name: "Seed Container",
+    name: "Seeds",
     short: "Seeds",
     blurb: "Lettuce seeds, sealed and ready to grow.",
     critical: true,
     alwaysShow: false,
   },
+  navBeacon: {
+    id: "navBeacon",
+    name: "Nav Beacon",
+    short: "Nav Beacon",
+    blurb: "Marks the way north.",
+    critical: true,
+    alwaysShow: false,
+  },
   powerCell: {
     id: "powerCell",
-    name: "Spare Power Cell",
+    name: "Power Cell",
     short: "Power Cell",
     blurb: "Enough to wake an old recharge post.",
     critical: false,
@@ -144,7 +154,7 @@ export const ITEMS: Record<ItemId, ItemDef> = {
   },
 };
 
-export const ITEM_ORDER: ItemId[] = ["commsModule", "coupling", "relayCell", "regulator", "recyclerPart", "waterCoupling", "seeds", "powerCell", "metal", "electronics", "sample", "treat", "recording", "roverPart"];
+export const ITEM_ORDER: ItemId[] = ["commsModule", "coupling", "relayCell", "regulator", "recyclerPart", "waterCoupling", "seeds", "navBeacon", "powerCell", "metal", "electronics", "sample", "treat", "recording", "roverPart"];
 
 /** Costs are data, so balancing never touches code. */
 export type Cost = Partial<Record<ItemId, number>>;

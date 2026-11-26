@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { OBJECTS } from "../src/data/world";
 import { getInteraction, performInteraction, type Effect } from "../src/systems/interactions";
 import { getObjective } from "../src/systems/mission";
+import { craft } from "../src/systems/crafting";
 import { createNewState, isPowered, type GameState } from "../src/systems/state";
 
 const all = new Set(OBJECTS.map((o) => o.id));
@@ -65,7 +66,7 @@ describe("Mission 01: A Signal in the Silence", () => {
     expect(s.flags.moduleInstalled).toBe(true);
     expect(getInteraction(obj("receiver"), s, ctx)?.detail).toBe("No power");
     for (const id of ["metal_ship", "metal_crates", "elec_outpost", "solarControl", "panel_1", "panel_2", "panel_3"]) use(s, id);
-    expect(getInteraction(obj("receiver"), s, ctx)?.verb).toBe("Tune receiver");
+    expect(getInteraction(obj("receiver"), s, ctx)?.verb).toBe("Tune radio"); // Phase 5: friendly names
   });
 
   it("panels can be swept before the array is repaired", () => {
@@ -113,14 +114,17 @@ describe("Mission 01: A Signal in the Silence", () => {
   });
 
   it("the workstation builds Thruster Boots only with power and parts", () => {
+    // Phase 5: the workstation opens the workbench; building is one press on the Boots card.
     const s = createNewState();
     s.inventory.metal = 4;
     s.inventory.electronics = 2;
     use(s, "workstation");
+    expect(craft(s, "boots", isPowered(s))).toEqual([]);
     expect(s.abilities.thrusters).toBe(false);
     s.flags.solarRepaired = true;
     s.sweptPanels = ["panel_1", "panel_2", "panel_3"];
-    expect(worldEvents(use(s, "workstation"))).toContain("thrusters");
+    expect(use(s, "workstation").some((e) => e.type === "ui" && e.panel === "workbench")).toBe(true);
+    expect(worldEvents(craft(s, "boots", isPowered(s)))).toContain("thrusters");
     expect(s.abilities.thrusters).toBe(true);
     expect(s.inventory.metal).toBe(2);
   });
@@ -132,6 +136,7 @@ describe("Mission 01: A Signal in the Silence", () => {
     s.inventory.metal = 1;
     const o = getObjective(s);
     expect(o.steps[0].text).toContain("Metal 1/2");
-    expect(o.hint).toContain("Crimson Canyon");
+    expect(o.primary).toContain("Metal 1/2"); // Phase 5: the count is in the one visible line
+    expect(o.hint).toMatch(/east/i);
   });
 });

@@ -19,6 +19,7 @@ import {
 import { completeMission04, lightsOutReady, markReturned, setAllocation, startLightsOut, syncScience } from "../src/systems/facilities";
 import { getInteraction, performInteraction, type Effect } from "../src/systems/interactions";
 import { getObjective } from "../src/systems/mission";
+import { craft } from "../src/systems/crafting";
 import { loadGame, migrate, sanitize, saveGame, type KeyValueStore } from "../src/systems/save";
 import { cloneState, createNewState, STATE_VERSION, type GameState } from "../src/systems/state";
 import { airJumpLimit, canUse, scanRadiusFactor, spend, SuitReserve } from "../src/systems/survival";
@@ -181,7 +182,7 @@ describe("power distribution (LIGHTS OUT)", () => {
     restoreBase(s);
     startLightsOut(s);
     setAllocation(s, "adventure", recommendedAllocation(s, "adventure"));
-    expect(verb(s, "panel_1")).toBe("Sweep the dust");
+    expect(verb(s, "panel_1")).toBe("Clean panel");
     expect(verb(s, "panel_2")).toBeUndefined(); // clean panels have nothing to sweep
     use(s, "panel_1");
     expect(s.flags.lightsOutDone).toBe(false);
@@ -229,26 +230,38 @@ describe("facilities and dependencies", () => {
     expect(s.flags.recyclerPowered || s.flags.growPowered || s.flags.shelterInspected).toBe(false);
   });
 
-  it("the recycler: inspect, find the cartridge, install, connect power, start (each step once)", () => {
+  it("life support: find the pump, then one press installs it and starts the recycler (each step once)", () => {
+    // Phase 5: the separate inspect / power-box / start presses were merged into one repair.
     const s = afterMission03();
     use(s, "beacon");
     use(s, "cargo_locker");
     use(s, "battery");
-    expect(verb(s, "recycler")).toBe("Inspect recycler");
+    expect(s.flags.recyclerPowered).toBe(true); // the battery's cables reach every room
+    expect(verb(s, "recycler")).toBe("Check life support");
     use(s, "recycler");
-    expect(verb(s, "recycler")).toBe("Inspect recycler"); // still missing the cartridge
+    expect(s.flags.recyclerOn).toBe(false); // still missing the pump
     use(s, "buried_cartridge");
     expect(s.inventory.recyclerPart).toBe(1);
-    use(s, "recycler");
-    use(s, "recycler"); // pressing again does not consume anything else
-    expect(s.flags.recyclerFixed).toBe(true);
-    expect(s.inventory.recyclerPart).toBe(0);
-    use(s, "recycler"); // no power yet
-    expect(s.flags.recyclerOn).toBe(false);
-    use(s, "recycler_power");
     const fx = use(s, "recycler");
     expect(events(fx)).toContain("recyclerOn");
+    use(s, "recycler"); // pressing again does not consume anything else
+    expect(s.flags.recyclerFixed && s.flags.recyclerOn).toBe(true);
+    expect(s.inventory.recyclerPart).toBe(0);
     expect(s.science).toContain("water_recovery");
+  });
+
+  it("a pump installed before the battery waits, then starts with one press once there is power", () => {
+    const s = afterMission03();
+    use(s, "beacon");
+    s.inventory.recyclerPart = 1;
+    s.collected.push("buried_cartridge");
+    use(s, "recycler");
+    expect(s.flags.recyclerFixed).toBe(true);
+    expect(s.flags.recyclerOn).toBe(false);
+    use(s, "cargo_locker");
+    use(s, "battery");
+    use(s, "recycler");
+    expect(s.flags.recyclerOn).toBe(true);
   });
 
   it("water circulation needs the depths' melt-line coupling, which can only be taken once", () => {
@@ -257,7 +270,7 @@ describe("facilities and dependencies", () => {
     use(s, "cargo_locker");
     use(s, "battery");
     use(s, "water_processor");
-    expect(verb(s, "sampler")).toBe("Take the spare melt-line coupling");
+    expect(verb(s, "sampler")).toBe("Take pipe connector");
     use(s, "sampler");
     expect(verb(s, "sampler")).toBe("Check core drill");
     use(s, "sampler");
@@ -268,7 +281,7 @@ describe("facilities and dependencies", () => {
     expect(s.inventory.sample).toBe(0); // no geological sample was consumed
   });
 
-  it("the greenhouse needs water, seeds and power, in that physical order", () => {
+  it("the greenhouse needs water and seeds; planting switches the lights on (Phase 5: fewer presses)", () => {
     const s = afterMission03();
     use(s, "beacon");
     use(s, "cargo_locker");
@@ -279,17 +292,28 @@ describe("facilities and dependencies", () => {
     use(s, "water_processor");
     use(s, "sampler");
     use(s, "water_processor");
-    use(s, "grow_valve");
+    expect(s.flags.growValveOpen).toBe(true); // water opens the grow-room valve
+    use(s, "planter");
+    expect(s.flags.seedsPlanted && s.flags.growLightsOn).toBe(true);
+    expect(s.inventory.seeds).toBe(0);
+  });
+
+  it("seeds planted without battery power wait for light (no growth), then one press switches the lights on", () => {
+    const s = afterMission03();
+    use(s, "beacon");
+    s.flags.waterRestored = true;
+    s.flags.growValveOpen = true;
+    use(s, "habitat_storage");
     use(s, "planter");
     expect(s.flags.seedsPlanted).toBe(true);
-    use(s, "planter");
-    expect(s.flags.growLightsOn).toBe(false); // no grow-room power yet
-    use(s, "grow_power");
+    expect(s.flags.growLightsOn).toBe(false);
+    use(s, "cargo_locker");
+    use(s, "battery");
     use(s, "planter");
     expect(s.flags.growLightsOn).toBe(true);
   });
 
-  it("the shelter exercise: wake the monitor, bark at both probes, log the readings", () => {
+  it("the shelter exercise: wake the monitor, bark at both probes (the second reading finishes it)", () => {
     const s = afterMission03();
     use(s, "beacon");
     use(s, "cargo_locker");
@@ -301,8 +325,8 @@ describe("facilities and dependencies", () => {
     use(s, "probe_shelter");
     use(s, "shelter_terminal"); // one reading is not enough
     expect(s.flags.shelterRestored).toBe(false);
-    use(s, "probe_surface");
-    use(s, "shelter_terminal");
+    const fx = use(s, "probe_surface");
+    expect(events(fx)).toContain("shelterOn");
     expect(s.flags.shelterRestored).toBe(true);
     expect(s.science).toContain("radiation");
   });
@@ -335,11 +359,11 @@ describe("greenhouse growth", () => {
   it("the first harvest happens once and a new crop starts", () => {
     const s = planted();
     run(s, 120_000);
-    expect(verb(s, "planter")).toBe("Harvest the lettuce");
+    expect(verb(s, "planter")).toBe("Harvest");
     use(s, "planter");
     expect(s.flags.cropHarvested).toBe(true);
     expect(plantStage(s)).toBe(2);
-    expect(verb(s, "planter")).toBe("Check plants");
+    expect(verb(s, "planter")).toBe("Plants");
   });
 });
 
@@ -409,13 +433,13 @@ describe("suit energy and recharging", () => {
   it("the canyon's dead recharge post needs a power cell, then wakes the seismometer (Challenge A)", () => {
     const s = afterMission03();
     use(s, "beacon");
-    expect(verb(s, "recharge_canyon")).toBe("Inspect recharge post");
+    expect(verb(s, "recharge_canyon")).toBe("Check post");
     use(s, "seismometer");
     expect(s.flags.seismometerRead).toBe(false);
     use(s, "buried_cell");
     use(s, "recharge_canyon");
     expect(s.flags.canyonPostFixed).toBe(true);
-    expect(verb(s, "recharge_canyon")).toBe("Recharge suit");
+    expect(verb(s, "recharge_canyon")).toBe("Recharge");
     use(s, "seismometer");
     use(s, "seismometer");
     expect(s.inventory.recording).toBe(1); // once
@@ -483,7 +507,7 @@ describe("Mission 04: A Place to Call Home", () => {
   it("a finished Mission 03 leads straight into Mission 04", () => {
     const s = afterMission03();
     expect(getObjective(s).stage).toBe("m4_call");
-    expect(verb(s, "beacon")).toBe("Answer the station call");
+    expect(verb(s, "beacon")).toBe("Answer the call");
     expect(verb(s, "habitat")).toBe("Check habitat"); // sealed until the base override
   });
 
@@ -497,7 +521,7 @@ describe("Mission 04: A Place to Call Home", () => {
     note();
     use(s, "beacon");
     note();
-    expect(verb(s, "habitat")).toBe("Enter the habitat");
+    expect(verb(s, "habitat")).toBe("Go down");
     markReturned(s);
     note();
     use(s, "base_terminal");
@@ -515,7 +539,8 @@ describe("Mission 04: A Place to Call Home", () => {
     const fx = completeMission04(s);
     note();
     expect(events(fx)).toContain("m4Complete");
-    expect(stages).toEqual(["m4_call", "m4_home", "m4_survey", "m4_regulator", "m4_wait", "m4_balance", "m4_sweep", "m4_look", "m3_complete"]);
+    // Phase 5: no separate "check the terminal" stage; Chapter 5 follows Chapter 4.
+    expect(stages).toEqual(["m4_call", "m4_home", "m4_regulator", "m4_wait", "m4_balance", "m4_sweep", "m4_look", "m5_call"]);
     expect(s.flags.m4Complete).toBe(true);
     expect(completeMission04(s)).toEqual([]); // once
   });
@@ -537,7 +562,7 @@ describe("Mission 04: A Place to Call Home", () => {
     use(s, "habitat_storage");
     use(s, "planter");
     use(s, "planter");
-    expect(getObjective(s).stage).toBe("m4_recycler");
+    expect(getObjective(s).stage).toBe("m4_cartridge"); // Phase 5: straight to "dig up the pump"
     use(s, "recycler");
     use(s, "buried_cartridge");
     use(s, "recycler");
@@ -550,7 +575,7 @@ describe("Mission 04: A Place to Call Home", () => {
     const s = afterMission03();
     s.inventory.metal = 2;
     s.inventory.electronics = 1;
-    use(s, "workstation"); // build boots
+    craft(s, "boots", true); // build boots at the workbench (Phase 5)
     expect(s.abilities.thrusters).toBe(true);
     restoreBase(s);
     expect(lightsOutReady(s)).toBe(true);
@@ -568,8 +593,8 @@ describe("Mission 04: A Place to Call Home", () => {
 });
 
 describe("saves (v4) and migration", () => {
-  it("is version 4", () => {
-    expect(STATE_VERSION).toBe(4);
+  it("is version 5 (Phase 5 added the workbench)", () => {
+    expect(STATE_VERSION).toBe(5);
   });
 
   it("a completed Phase 3 (v3) save continues into Mission 04 with everything kept", () => {
@@ -583,7 +608,7 @@ describe("saves (v4) and migration", () => {
     expect(r.status).toBe("ok");
     if (r.status !== "ok") return;
     const s = r.state;
-    expect(s.version).toBe(4);
+    expect(s.version).toBe(STATE_VERSION);
     expect(s.flags.ridgeCableOpen && s.flags.relayAnalyzed && s.flags.demoComplete).toBe(true);
     expect(s.collected).toEqual(expect.arrayContaining(["sampler", "coupling_cache"]));
     expect(s.abilities.headlamp).toBe(true);
@@ -594,9 +619,9 @@ describe("saves (v4) and migration", () => {
     expect(getObjective(s).stage).toBe("m4_call");
   });
 
-  it("v1 and v2 saves migrate all the way to v4", () => {
-    expect(migrate({ version: 1, flags: {}, abilities: { sniff: true } })?.version).toBe(4);
-    expect(migrate({ version: 2, flags: {} })?.version).toBe(4);
+  it("v1 and v2 saves migrate all the way to the current version", () => {
+    expect(migrate({ version: 1, flags: {}, abilities: { sniff: true } })?.version).toBe(STATE_VERSION);
+    expect(migrate({ version: 2, flags: {} })?.version).toBe(STATE_VERSION);
   });
 
   it("recovers a corrupted engineering block instead of erasing the campaign", () => {

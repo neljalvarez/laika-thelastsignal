@@ -184,6 +184,12 @@ const OBJECTS: WorldObject[] = [
   // ---- I: ice chamber ----
   { id: "cp_depths_ice", kind: "checkpoint", col: 31, row: 28, label: "Ice Chamber" },
   { id: "recharge_ice", kind: "recharge", col: 34, row: 28, label: "chamber charger" },
+  // Phase 5: workbench materials and the Survey Headlamp's hidden mark.
+  { id: "metal_depths", kind: "buried", col: 24, row: 28, item: "metal" },
+  { id: "elec_depths", kind: "buried", col: 98, row: 30, item: "electronics" },
+  { id: "metal_fissure", kind: "pickup", col: 108, row: 30, item: "metal" },
+  { id: "metal_ice", kind: "pickup", col: 37, row: 28, item: "metal" },
+  { id: "lamp_cache", kind: "pickup", col: 104, row: 30, item: "electronics", needs: "surveyLamp", label: "Survey cache" },
   {
     id: "sampler",
     kind: "sampler",

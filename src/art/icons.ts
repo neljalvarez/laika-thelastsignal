@@ -211,6 +211,7 @@ const RAW: Record<ItemId, Grid> = {
     "...dddddd...",
     "............",
   ],
+  navBeacon: ["............", ".....r......", "....rrr.....", ".....d......", "....ddd.....", "...dmsmd....", "...dmymd....", "...dmsmd....", "...dmmmd....", "..ddddddd...", "..dmmmmmd...", "............"],
   powerCell: [
     "............",
     ".....ss.....",
@@ -238,6 +239,23 @@ const SCI_RAW: Record<string, Grid> = {
   sci_radiation: ["............", "...dddddd...", "..dssssssd..", "..dsyyyysd..", "..dsyddysd..", "..dsyddysd..", "..dsyyyysd..", "...dssssd...", "....dssd....", ".....dd.....", "............", "............"],
   sci_comms: ["............", "..........s.", ".........s..", "....ddd.s...", "...dmmmd....", "..dmsssmd...", "..dmsssmd...", "...dmmmd....", "....dmd.....", "....dmd.....", "...ddddd....", "............"],
 };
+
+/** Phase 5: workbench equipment icons. */
+const EQ_RAW: Record<string, Grid> = {
+  eq_boots: ["............", "............", "..ss....ss..", "..sm....sm..", "..sm....sm..", "..sm....sm..", "..smoo..smoo", "..ssssmossss", "..dddd.mdddd", "...bb....bb.", "...b......b.", "............"],
+  eq_booster: ["......y.....", "......d.....", "......d.....", "....dddd....", "...dssssd...", "...dsbbsd...", "...dsbbsd...", "...dssssd...", "...dyyyyd...", "...dssssd...", "....dddd....", "............"],
+  eq_thruster: ["............", "..ss....ss..", "..sm....sm..", "..sm....sm..", "..smbb..smbb", "..ssssbbssss", "..dddd..dddd", "...bb....bb.", "..bwb...bwb.", "...b.....b..", "............", "............"],
+  eq_lamp: ["............", "....dddd....", "...dssssd...", "..dsmmmmsd.y", "..dsmyymsdyy", "..dsmyymsdyy", "..dsmmmmsd.y", "...dssssd...", "....dddd....", "............", "............", "............"],
+  eq_battery: ["............", ".....dd.....", "...dddddd...", "...dssssd...", "...dggggd...", "...dssssd...", "...dggggd...", "...dssssd...", "...dggggd...", "...dddddd...", "............", "............"],
+};
+export const EQ_ICONS: Record<string, Grid> = Object.fromEntries(Object.entries(EQ_RAW).map(([k, g]) => [k, outline(g, "N", new Set())]));
+
+/** Data URL of an equipment icon (workbench cards, collection). */
+export function eqIconUrl(key: string, scale = 4): string {
+  const k = `${key}@${scale}`;
+  if (!urlCache.has(k)) urlCache.set(k, drawGrid(EQ_ICONS[key] ?? EQ_ICONS.eq_boots, scale).toDataURL());
+  return urlCache.get(k)!;
+}
 
 export const SCI_ICONS: Record<string, Grid> = Object.fromEntries(Object.entries(SCI_RAW).map(([k, g]) => [k, outline(g, "N", new Set())]));
 

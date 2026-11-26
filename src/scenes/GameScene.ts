@@ -15,7 +15,6 @@ import { BRIDGE_TILES, HATCH_TILES, objectPos, PRACTICE_IDS, SPAWN, STATION_DOOR
 import { connectionById, findObject, MAPS, mapOfObject, type MapDef, type MapId } from "../data/regions/registry";
 import { Lighting } from "../game/Lighting";
 import { discover, routeTo } from "../systems/regions";
-import { journal } from "../systems/mission";
 import { WorldMapUI } from "../ui/WorldMapUI";
 import { CameraController } from "../game/CameraController";
 import { ObjectsView } from "../game/ObjectsView";
@@ -24,7 +23,7 @@ import { SniffFx } from "../game/SniffFx";
 import { DEPTH, WorldView } from "../game/WorldView";
 import { createHints, createStruggle, recordJump, requestHint, updateHints, type HintState, type StruggleState } from "../systems/hints";
 import { barkEffects, costText, getInteraction, performInteraction, type Effect, type Interaction, type WorldEvent } from "../systems/interactions";
-import { completionStats, getObjective } from "../systems/mission";
+import { getObjective } from "../systems/mission";
 import { deleteSave, saveGame } from "../systems/save";
 import { keyLabel, REMAPPABLE, type Action, type Settings } from "../systems/settings";
 import { detect, signalLevel, sniffTargets, trend, type SignalLevel } from "../systems/sniff";
@@ -38,8 +37,18 @@ import { OPTIONAL_SYSTEMS, type OptionalSystem, type SurvivalMode } from "../dat
 import { scienceEntry, type ScienceCategory } from "../data/science";
 import { clampEng, computePower, EngineClock, STAGE_NAMES, stepEngineering, type EngineEvent, type PowerStatus } from "../systems/engineering";
 import { completeMission04, lightsOutReady, markReturned, setAllocation, startLightsOut } from "../systems/facilities";
-import { airJumpLimit, airJumpUse, canUse, scanRadiusFactor, spend, suitActive, SuitReserve } from "../systems/survival";
+import { airJumpLimit, airJumpUse, canUse, scanRadiusFactor, spend, suitActive, suitMaxOf, SuitReserve } from "../systems/survival";
 import { BaseHud, baseStatusCard, distributionCard, scienceCard } from "../ui/BaseUI";
+// ---- Phase 5 ----
+import { autoAdvance, chapter } from "../systems/chapters";
+import { craft, lookOf, revealRadiusFactor, sniffRadiusFactor, headlampFactor, toggleCosmetic } from "../systems/crafting";
+import { nextWaypoint, type Waypoint } from "../systems/waypoints";
+import type { WorldGrid } from "../systems/worldBuilder";
+import { ensureLaikaLook } from "../art/registerTextures";
+import { workbenchCard } from "../ui/CraftingUI";
+import { EQUIPMENT, type EquipmentId } from "../data/equipment";
+import { workbenchCards } from "../systems/crafting";
+import { journalCard, type JournalTab } from "../ui/JournalUI";
 
 type MenuMode = "none" | "pause" | "settings" | "confirm" | "complete" | "controls" | "map" | "base";
 
@@ -109,7 +118,6 @@ export class GameScene extends Phaser.Scene {
   private objectiveKey = "";
   private menu: MenuMode = "none";
   private lockedUntil = 0;
-  private pendingComplete = false;
   private lastSave = 0;
   private lastSniff = -9999;
   private lastInputAt = 0;
@@ -138,6 +146,17 @@ export class GameScene extends Phaser.Scene {
   private lightsOutAt = 0;
   private finaleAt = 0;
   private lowSuitWarnAt = -99999;
+  // ---- Phase 5: chapters, guidance, auto-advance ----
+  private lastChapter: number | null | undefined = undefined;
+  private lastTransClosedAt = -99999;
+  private grid!: WorldGrid;
+  private wp: Waypoint | null = null;
+  private wpAt = 0;
+  private wpMarker!: Phaser.GameObjects.Image;
+  /** A destination picked on the map (guidance only; never skips a requirement). */
+  customTarget: string | null = null;
+  private askGuideUntil = 0;
+  private suitShownUntil = 0;
   private visibilityListener = () => {
     if (document.hidden && this.menu === "none" && !svc().ui.transmissionOpen) this.openPause();
     if (document.hidden) this.save();
@@ -157,7 +176,6 @@ export class GameScene extends Phaser.Scene {
     this.lighting = null;
     this.discoverAt = 0;
     this.menu = "none";
-    this.pendingComplete = false;
     this.regionsShown.clear();
     this.regionId = "";
     this.ambienceKey = "";
@@ -180,6 +198,7 @@ export class GameScene extends Phaser.Scene {
     this.mapDef = MAPS[mapId];
     if (this.replayOnStart && mapId !== "surface") this.replayOnStart = false; // Mission 00 lives on the ship
     const grid = mapId === "surface" ? buildWorld() : buildMap(this.mapDef, this.state);
+    this.grid = grid;
     this.world = new WorldView(this, grid, this.mapDef);
     this.world.create({
       hatchOpen: this.state.flags.hatchOpen,
@@ -226,6 +245,10 @@ export class GameScene extends Phaser.Scene {
     this.camCtl.snapTo(spawn.x, spawn.y);
     this.world.updateParallax(cam);
     this.guide = this.add.image(0, 0, "arrow").setScrollFactor(0).setDepth(DEPTH.ui).setVisible(false).setScale(2);
+    // Phase 5: the in-world waypoint marker (a small bobbing chevron over the next place to go).
+    this.wpMarker = this.add.image(0, 0, "arrow").setDepth(DEPTH.fx).setVisible(false).setRotation(Math.PI / 2).setScale(1.25).setTint(0xffe27a);
+    this.lastChapter = this.tutorial ? 0 : undefined;
+    this.refreshLook();
 
     ui.showHud(true);
     ui.showObjective(!this.tutorial);
@@ -311,6 +334,7 @@ export class GameScene extends Phaser.Scene {
         tracking: () => !!this.tracking,
         teleport: (col: number, row: number) => this.player.placeAt(col * TILE + 8, row * TILE),
         map: () => this.mapDef.id,
+        waypoint: () => (this.wp ? { ...this.wp, markerShown: this.wpMarker.visible, arrowShown: this.guide.visible } : null),
         discovered: () => this.state.discovered,
         mapOpen: () => this.menu === "map",
         audio: () => ({ unlocked: svc().audio.unlocked, settings: svc().settings }),
@@ -415,6 +439,7 @@ export class GameScene extends Phaser.Scene {
         y: this.player.feetY,
         facing: this.player.facing,
         headlamp: this.state.abilities.headlamp,
+        lampScale: headlampFactor(this.state),
         groups: ObjectsView.poweredGroups(this.state),
         bright: settings.brightCaves,
         now: time,
@@ -602,7 +627,8 @@ export class GameScene extends Phaser.Scene {
     this.player.doAction("celebrate", this.time.now);
     this.time.delayedCall(150, () => audio.sfx("woof"));
     if (t.mode === "replay") {
-      tutorialUI().missionCards([{ small: "PRACTICE", big: "MISSION 00 COMPLETE" }], 1500, () => this.endReplay());
+      ui.toast("Practice done!", "good");
+      this.time.delayedCall(900, () => this.endReplay());
       return;
     }
     this.tutorial = null;
@@ -611,19 +637,14 @@ export class GameScene extends Phaser.Scene {
     this.state.abilities.sniff = true;
     ui.setSniffAvailable(true);
     this.save();
-    audio.sfx("complete");
-    tutorialUI().missionCards(
-      [
-        { small: "", big: "MISSION 00 COMPLETE" },
-        { small: "MISSION 01", big: "A SIGNAL IN THE SILENCE" },
-      ],
-      1500,
-      () => this.beginMission01(),
-    );
+    // Phase 5: no title cards; a small chapter label appears and play continues at once.
+    audio.sfx("stageDone");
+    this.beginMission01();
   }
 
   private beginMission01(): void {
     svc().ui.showObjective(true);
+    this.lastChapter = 0;
     this.refreshHud(true);
     this.hints = createHints();
     this.openTransmission("wake", false);
@@ -785,9 +806,9 @@ export class GameScene extends Phaser.Scene {
       return;
     }
     const boost = this.hints.level >= 2 ? 1.6 : 1;
-    const dets = detect(px, py, this.currentTargets(), SNIFF_RADIUS * tr.radius, SNIFF_REVEAL_RADIUS, boost);
+    const dets = detect(px, py, this.currentTargets(), SNIFF_RADIUS * tr.radius * sniffRadiusFactor(this.state), SNIFF_REVEAL_RADIUS * revealRadiusFactor(this.state), boost);
     const near = dets[0] ?? null;
-    const level: SignalLevel = near ? signalLevel(near.dist, SNIFF_REVEAL_RADIUS, SNIFF_RADIUS * boost * tr.radius) : "none";
+    const level: SignalLevel = near ? signalLevel(near.dist, SNIFF_REVEAL_RADIUS * revealRadiusFactor(this.state), SNIFF_RADIUS * boost * tr.radius * sniffRadiusFactor(this.state)) : "none";
     if (now - tr.lastTrendAt > 300) {
       tr.trend = trend(tr.lastDist, near?.dist ?? null);
       if (tr.trend === "warmer") tr.until = Math.max(tr.until, now + 3000);
@@ -889,7 +910,7 @@ export class GameScene extends Phaser.Scene {
     const local = this.localTarget();
     this.objects.highlight(level >= 1 && local ? local : null);
     ui.setHintLevel(level);
-    this.updateGuideArrow(level >= 3 ? local ?? undefined : undefined);
+    this.updateGuidance(level, time);
   }
 
   /**
@@ -899,32 +920,11 @@ export class GameScene extends Phaser.Scene {
   private localTarget(): string | null {
     const o = getObjective(this.state);
     if (!o.target) return null;
-    const r = routeTo(this.state, this.mapDef.id, o.target);
+    const r = routeTo(this.state, this.mapDef.id, o.target, Math.floor(this.player.x / TILE));
     return r?.localTarget ?? null;
   }
 
-  /** Hint level 3: an arrow at the edge of the screen pointing towards the objective. */
-  private updateGuideArrow(targetId: string | undefined): void {
-    if (!targetId || mapOfObject(targetId) !== this.mapDef.id) {
-      this.guide.setVisible(false);
-      return;
-    }
-    const cam = this.cameras.main;
-    const p = this.objects.positionOf(targetId);
-    const sx = p.x - cam.scrollX;
-    const sy = p.y - 20 - cam.scrollY;
-    if (sx > 16 && sx < cam.width - 16 && sy > 16 && sy < cam.height - 16) {
-      this.guide.setVisible(false);
-      return;
-    }
-    const cx = cam.width / 2;
-    const cy = cam.height / 2;
-    const ang = Math.atan2(sy - cy, sx - cx);
-    const bob = Math.sin(this.time.now / 200) * 2;
-    const x = Phaser.Math.Clamp(cx + Math.cos(ang) * (cx - 18 + bob), 14, cam.width - 14);
-    const y = Phaser.Math.Clamp(cy + Math.sin(ang) * (cy - 18 + bob), 14, cam.height - 14);
-    this.guide.setVisible(true).setRotation(ang).setPosition(Math.round(x), Math.round(y));
-  }
+
 
   private hintButton(): void {
     const { ui } = svc();
@@ -935,7 +935,10 @@ export class GameScene extends Phaser.Scene {
     }
     const level = requestHint(this.hints);
     ui.setHintLevel(level);
-    ui.toast(level >= 3 ? "Follow the arrow at the edge of the screen." : level === 2 ? "Hint added to your objective." : "The thing you need is glowing.", "info");
+    // Phase 5: asking for help always shows the way for a while, whatever the guidance setting.
+    this.askGuideUntil = this.time.now + 9000;
+    this.wpAt = 0;
+    ui.toast(level >= 2 ? "Hint added" : "Follow the marker", "info");
   }
 
   // ------------------------------------------------------------------
@@ -956,7 +959,7 @@ export class GameScene extends Phaser.Scene {
           this.objects.collect(e.objectId, this.player.x, this.player.centerY - 6, delay);
           this.time.delayedCall(delay + 60, () => {
             audio.sfx(e.item === "commsModule" || e.item === "treat" ? "collectBig" : "collect", { pitch: 0.97 + Math.random() * 0.06 });
-            ui.toast(`+${e.amount} ${ITEMS[e.item].name}. ${ITEMS[e.item].blurb}`, "good", e.item);
+            ui.toast(`+${e.amount} ${ITEMS[e.item].name}`, "good", e.item);
             this.player.wag(this.time.now);
             this.refreshHud();
           });
@@ -966,7 +969,9 @@ export class GameScene extends Phaser.Scene {
           ui.toast(`Used ${costText(e.cost)}`, "info");
           break;
         case "transmission":
-          this.openTransmission(e.id, true);
+          // Phase 5: radio plays as subtitles while Laika keeps moving; the full text waits in the journal.
+          this.openTransmission(e.id, false);
+          if (!this.state.seen.includes(`tx:${e.id}`)) this.state.seen.push(`tx:${e.id}`);
           break;
         case "tip":
           // Phase 4 gameplay tips are labelled "Tip"; the rest are short science notes.
@@ -1021,20 +1026,10 @@ export class GameScene extends Phaser.Scene {
         case "ui":
           this.time.delayedCall(180, () => this.openBasePanel(e.panel));
           break;
-        case "science": {
-          const entry = scienceEntry(e.id);
-          if (entry) {
-            this.time.delayedCall(900, () => {
-              ui.toast(`Science journal: "${entry.title}" added.`, "info");
-              audio.sfx("click");
-            });
-            if (!this.state.seen.includes("tip:science")) {
-              this.state.seen.push("tip:science");
-              this.time.delayedCall(2600, () => ui.showTip("New science journal entries wait in the Pause menu, under Science journal. Read them any time.", "Tip"));
-            }
-          }
+        case "science":
+          // Phase 5: stored quietly; a small dot on the pause button says the journal has news.
+          if (scienceEntry(e.id)) ui.setJournalBadge(true);
           break;
-        }
       }
     }
     if (!this.tutorial) {
@@ -1095,11 +1090,11 @@ export class GameScene extends Phaser.Scene {
         break;
       case "thrusters":
         this.player.setBoots(true);
+        this.refreshLook();
         ui.setAbilities(this.state.abilities);
         this.objects.sparkleAt(this.player.x, this.player.feetY - 4, 14);
         break;
       case "demoComplete":
-        this.pendingComplete = true;
         this.objects.setTexture("beacon", "beacon_on");
         break;
       case "sniffUnlocked":
@@ -1197,10 +1192,8 @@ export class GameScene extends Phaser.Scene {
         audio.sfx("door");
         break;
       case "mission02Complete":
-        this.pendingCards = "m2";
-        break;
       case "mission03Complete":
-        this.time.delayedCall(800, () => this.showMission03Complete());
+        // Phase 5: no results screen; the chapter change shows a small label instead.
         break;
       // ---------------- Phase 4 ----------------
       case "m4Brief":
@@ -1305,7 +1298,26 @@ export class GameScene extends Phaser.Scene {
         break;
       case "m4Complete":
         this.syncBase();
-        this.time.delayedCall(600, () => this.showMission04Complete());
+        this.player.doAction("celebrate", this.time.now);
+        break;
+      // ---------------- Phase 5 ----------------
+      case "crafted":
+        this.refreshLook();
+        audio.sfx("repair");
+        this.time.delayedCall(250, () => audio.sfx("collectBig"));
+        this.objects.sparkleAt(this.player.x, this.player.feetY - 12, settings.reducedMotion ? 4 : 14);
+        this.player.wag(this.time.now);
+        this.objects.syncGear(this.state);
+        break;
+      case "blueprint":
+        audio.sfx("checkpoint");
+        break;
+      case "beaconFound":
+        this.player.doAction("celebrate", this.time.now);
+        break;
+      case "m5Brief":
+      case "m5Complete":
+        audio.sfx("power");
         break;
     }
   }
@@ -1331,7 +1343,7 @@ export class GameScene extends Phaser.Scene {
         this.animFrame = this.animFrame ? 0 : 1;
       }
       this.syncBase();
-    } else if (suitChanged) baseHud().update(this.state, this.power, mode);
+    } else if (suitChanged) baseHud().update(this.state, this.power, mode, this.hudContext());
   }
 
   private engineEvent(e: EngineEvent): void {
@@ -1355,7 +1367,7 @@ export class GameScene extends Phaser.Scene {
     const frame = svc().settings.reducedMotion ? 0 : this.animFrame;
     if (!this.tutorial) this.objects.syncBase(this.state, this.power, frame);
     this.baseView?.sync(this.state, this.power);
-    baseHud().update(this.state, this.power, mode);
+    baseHud().update(this.state, this.power, mode, this.hudContext());
   }
 
   /** Thruster jumps use suit energy from Mission 04 (Laika can always walk, jump, sniff and bark). */
@@ -1365,7 +1377,8 @@ export class GameScene extends Phaser.Scene {
     if (events.includes("airJump")) {
       spend(this.state, airJumpUse(this.player.move.airJumpsUsed), mode);
       this.reserve.used();
-      baseHud().update(this.state, this.power, mode);
+      this.suitShownUntil = this.time.now + 3000;
+      baseHud().update(this.state, this.power, mode, this.hudContext());
       return;
     }
     if (!jumpPressed || this.player.move.grounded || !this.state.abilities.thrusters || events.includes("jump")) return;
@@ -1383,6 +1396,14 @@ export class GameScene extends Phaser.Scene {
 
   /** Arriving home, the LIGHTS OUT event and the Mission 04 finale. */
   private phase4Checks(now: number): void {
+    // Phase 5: the next chapter's call arrives by itself, a moment after the last radio message.
+    if (!this.tutorial && !this.transitioning && !svc().ui.transmissionOpen && now - this.lastTransClosedAt > 1400) {
+      const fx = autoAdvance(this.state);
+      if (fx.length) {
+        this.applyEffects(fx, objectById("beacon")!);
+        return;
+      }
+    }
     if (this.tutorial || this.mapDef.id !== "surface" || this.transitioning || svc().ui.transmissionOpen) return;
     const col = Math.floor(this.player.x / TILE);
     const row = Math.floor((this.player.feetY - 1) / TILE);
@@ -1435,7 +1456,98 @@ export class GameScene extends Phaser.Scene {
     });
   }
 
-  private openBasePanel(panel: "baseStatus" | "distribution" | "science"): void {
+  /**
+   * Phase 5: the suit meter only shows while energy matters (used recently, not full, or low) and
+   * never in Relaxed; the base power chip only at the outpost or during LIGHTS OUT. The detailed
+   * HUD setting shows both all the time.
+   */
+  private hudContext(): { suit: boolean; power: boolean } {
+    const { settings } = svc();
+    if (settings.hud === "detailed") return { suit: true, power: true };
+    const max = suitMaxOf(this.state);
+    const low = this.state.eng.suit <= max * 0.25;
+    const suit = settings.survival !== "relaxed" && (this.time.now < this.suitShownUntil || this.state.eng.suit < max - 0.5 || low);
+    const col = Math.floor(this.player.x / TILE);
+    const power = !!this.power?.haze || (this.mapDef.id === "surface" && col >= 26 && col <= 90 && this.state.flags.batteryRestored && this.nearBaseMachine());
+    return { suit, power };
+  }
+
+  private nearBaseMachine(): boolean {
+    return !!this.target && ["battery", "base_terminal", "dist_console"].includes(this.target.o.id);
+  }
+
+  /** Phase 5: Laika's sprite follows her equipment and cosmetics (generated once per look). */
+  private refreshLook(): void {
+    if (!this.player) return;
+    const key = ensureLaikaLook(this, lookOf(this.state));
+    this.player.setLookTexture(key, this.state.abilities.thrusters);
+  }
+
+  /**
+   * Phase 5: one primary navigation indicator. The waypoint follows the real route (lifts, the
+   * habitat ladder, around walls). Guided: a marker over the next place, or an arrow at the screen
+   * edge when it is off-screen. Explorer: only the small direction arrow in the objective line
+   * (the marker appears when hints kick in). Minimal: nothing until the player asks (? button).
+   */
+  private updateGuidance(level: number, time: number): void {
+    const { settings, ui } = svc();
+    const hide = () => {
+      this.guide.setVisible(false);
+      this.wpMarker.setVisible(false);
+    };
+    const target = this.customTarget ?? getObjective(this.state).target ?? null;
+    if (this.tutorial || !target || this.transitioning) {
+      hide();
+      ui.setDirection(null);
+      return;
+    }
+    if (time >= this.wpAt) {
+      this.wpAt = time + 450;
+      this.wp = nextWaypoint(this.grid, this.state, this.mapDef.id, { col: Math.floor(this.player.x / TILE), row: Math.floor((this.player.feetY - 1) / TILE) }, target);
+      if (this.customTarget && this.wp && this.wp.kind === "target" && this.wp.steps >= 0 && this.wp.steps <= 2) this.customTarget = null;
+    }
+    const wp = this.wp;
+    if (!wp) {
+      hide();
+      ui.setDirection(null);
+      return;
+    }
+    const dx = wp.x - this.player.x;
+    const dy = wp.y - (this.player.feetY - 12);
+    const dir = Math.abs(dx) < 14 && Math.abs(dy) < 28 ? "here" : Math.abs(dy) > Math.abs(dx) * 1.2 && Math.abs(dy) > 40 ? (dy < 0 ? "up" : "down") : dx < 0 ? "left" : "right";
+    const asked = time < this.askGuideUntil;
+    const mode = settings.guidance;
+    ui.setDirection(mode === "minimal" && !asked && level < 2 ? null : dir);
+    const show = mode === "guided" || asked || level >= 3 || (mode === "explorer" && level >= 2);
+    // Close enough to use it: the interaction prompt takes over.
+    const atTarget = this.target && wp.objectId === this.target.o.id;
+    if (!show || atTarget || this.menu !== "none") {
+      hide();
+      return;
+    }
+    const cam = this.cameras.main;
+    const sx = wp.x - cam.scrollX;
+    const sy = wp.y - cam.scrollY;
+    const bob = settings.reducedMotion ? 0 : Math.sin(time / 220) * 2;
+    if (sx > 10 && sx < cam.width - 10 && sy > 10 && sy < cam.height - 10) {
+      this.guide.setVisible(false);
+      this.wpMarker.setVisible(true).setPosition(Math.round(wp.x), Math.round(wp.y - 10 + bob));
+    } else {
+      this.wpMarker.setVisible(false);
+      const cx = cam.width / 2;
+      const cy = cam.height / 2;
+      const ang = Math.atan2(sy - cy, sx - cx);
+      const x = Phaser.Math.Clamp(cx + Math.cos(ang) * (cx - 18 + bob), 14, cam.width - 14);
+      const y = Phaser.Math.Clamp(cy + Math.sin(ang) * (cy - 18 + bob), 14, cam.height - 14);
+      this.guide.setVisible(true).setRotation(ang).setPosition(Math.round(x), Math.round(y));
+    }
+  }
+
+  private benchSel: EquipmentId = "boots";
+  private benchDetail = false;
+  private journalView: { tab: JournalTab; sciCategory: ScienceCategory; sciOpen: string | null } = { tab: "gear", sciCategory: "geology", sciOpen: null };
+
+  private openBasePanel(panel: "baseStatus" | "distribution" | "science" | "workbench" | "journal"): void {
     const { ui } = svc();
     if (this.menu !== "none" || this.tutorial) return;
     this.scene.pause();
@@ -1464,8 +1576,75 @@ export class GameScene extends Phaser.Scene {
             this.resume();
             this.applyEffects(setAllocation(this.state, mode, draft), objectById("dist_console")!);
             this.syncBase();
-            ui.toast("Power shared out.", "info");
           }, close),
+        );
+      render();
+    } else if (panel === "workbench") {
+      ui.peekInventory(0, true);
+      const powered = isPowered(this.state);
+      const cards = () => workbenchCards(this.state, powered);
+      const first = cards().find((c) => c.status === "ready") ?? cards().find((c) => c.status !== "built") ?? cards()[0];
+      if (first && !cards().some((c) => c.id === this.benchSel && c.status === "ready")) this.benchSel = first.id;
+      let building = false;
+      const render = () =>
+        ui.showCustom(
+          workbenchCard(cards(), { metal: this.state.inventory.metal, circuits: this.state.inventory.electronics }, this.benchSel, this.benchDetail, {
+            select: (id) => {
+              this.benchSel = id;
+              render();
+            },
+            build: (id) => {
+              if (building) return; // rapid clicks build once
+              building = true;
+              const fx = craft(this.state, id, powered);
+              if (!fx.length) {
+                building = false;
+                return;
+              }
+              ui.peekInventory(0, false);
+              this.resume();
+              this.applyEffects(fx, objectById("workstation")!);
+              ui.toast(`${EQUIPMENT[id].name.toUpperCase()} BUILT!`, "good", undefined, "milestone");
+            },
+            detail: () => {
+              this.benchDetail = !this.benchDetail;
+              render();
+            },
+            close: () => {
+              ui.peekInventory(0, false);
+              close();
+            },
+          }),
+        );
+      render();
+    } else if (panel === "journal") {
+      ui.setJournalBadge(false);
+      const v = this.journalView;
+      const render = () =>
+        ui.showCustom(
+          journalCard(this.state, v, {
+            tab: (t) => {
+              v.tab = t;
+              render();
+            },
+            sciCategory: (c) => {
+              v.sciCategory = c;
+              v.sciOpen = null;
+              render();
+            },
+            sciOpen: (id) => {
+              v.sciOpen = id;
+              render();
+            },
+            wear: (id) => {
+              if (toggleCosmetic(this.state, id)) {
+                this.refreshLook();
+                this.save();
+              }
+              render();
+            },
+            close,
+          }),
         );
       render();
     } else {
@@ -1482,62 +1661,7 @@ export class GameScene extends Phaser.Scene {
     }
   }
 
-  private showMission04Complete(): void {
-    const { ui, audio } = svc();
-    audio.playMusic("ending");
-    audio.sfx("complete");
-    this.player.doAction("celebrate", this.time.now);
-    this.save();
-    let talked = false;
-    const wait = () => {
-      // The finale transmission plays first; the card follows a moment after it closes (so a
-      // player still mashing Jump/E to finish the dialogue does not dismiss the card by accident).
-      if (ui.transmissionOpen) {
-        talked = true;
-        this.time.delayedCall(400, wait);
-        return;
-      }
-      if (talked) {
-        talked = false;
-        this.time.delayedCall(700, wait);
-        return;
-      }
-      this.menu = "complete";
-      ui.setMenuOpen(true);
-      this.scene.pause();
-      this.physics.pause();
-      ui.showStoryComplete(
-        {
-          title: "MISSION 04 COMPLETE",
-          subtitle: "A Place to Call Home",
-          lines: [
-            "[x] Battery station restored",
-            "[x] Life support recycling air and water",
-            "[x] Water flowing from the Frozen Depths",
-            `[${this.state.flags.cropHarvested ? "x" : " "}] First greenhouse harvest`,
-            "[x] Radiation shelter ready",
-            "[x] LIGHTS OUT handled: life support never went down",
-            `Science journal: ${this.state.science.length} entries`,
-          ],
-          minutes: Math.max(1, Math.round(this.state.playTimeMs / 60000)),
-          epilogue: "The outpost is home now. And far to the north, the old signal is getting clearer...",
-        },
-        () => {
-          ui.closeScreen();
-          this.resume();
-          ui.toast("The outpost is home now. The northern signal is getting clearer...", "good");
-        },
-        () => {
-          this.save();
-          ui.closeScreen();
-          ui.showHud(false);
-          this.menu = "none";
-          this.scene.start("title");
-        },
-      );
-    };
-    this.time.delayedCall(900, wait);
-  }
+
 
   /** Doors and bridges of this map that changed with the state (shutters, tower door, cache bridge). */
   private syncWorldGroups(animate: boolean): void {
@@ -1623,40 +1747,12 @@ export class GameScene extends Phaser.Scene {
     }
   }
 
-  private pendingCards: "m2" | null = null;
 
   private focusAt(x: number, y: number): void {
     if (this.camCtl.focus(x, y, 1900, this.time.now)) this.lockedUntil = this.time.now + 1900;
   }
 
-  private showMission03Complete(): void {
-    const { ui, audio } = svc();
-    audio.playMusic("ending");
-    audio.sfx("complete");
-    this.player.doAction("celebrate", this.time.now);
-    this.save();
-    this.time.delayedCall(900, () => {
-      this.menu = "complete";
-      ui.setMenuOpen(true);
-      this.scene.pause();
-      this.physics.pause();
-      ui.showStoryComplete(
-        { title: "MISSION 03 COMPLETE", subtitle: "Echoes Above", lines: journal(this.state).map((j) => `${j.have >= j.total ? "[x]" : "[ ]"} ${j.label}: ${Math.min(j.have, j.total)}/${j.total}`), minutes: Math.max(1, Math.round(this.state.playTimeMs / 60000)) },
-        () => {
-          ui.closeScreen();
-          this.resume();
-          ui.toast("The signal waits in the north... Explore as long as you like!", "good");
-        },
-        () => {
-          this.save();
-          ui.closeScreen();
-          ui.showHud(false);
-          this.menu = "none";
-          this.scene.start("title");
-        },
-      );
-    });
-  }
+
 
   toggleMap(): void {
     const { ui } = svc();
@@ -1679,6 +1775,13 @@ export class GameScene extends Phaser.Scene {
       target: o.target ?? null,
       objective: o.primary,
       onClose: () => this.toggleMap(),
+      onPick: (id) => {
+        this.customTarget = id;
+        this.wpAt = 0;
+        this.askGuideUntil = this.time.now + 30000;
+        this.toggleMap();
+        svc().ui.toast("Marker set", "info");
+      },
     });
   }
 
@@ -1724,23 +1827,8 @@ export class GameScene extends Phaser.Scene {
       () => {
         audio.duckMusic(false);
         input.flush();
-        this.lockedUntil = this.time.now + 150;
-        if (this.pendingComplete) {
-          this.pendingComplete = false;
-          this.showCompletion();
-        }
-        if (this.pendingCards === "m2") {
-          this.pendingCards = null;
-          svc().audio.sfx("complete");
-          tutorialUI().missionCards(
-            [
-              { small: "", big: "MISSION 02 COMPLETE" },
-              { small: "MISSION 03", big: "ECHOES ABOVE" },
-            ],
-            1500,
-            () => this.refreshHud(true),
-          );
-        }
+        if (blocking) this.lockedUntil = this.time.now + 150;
+        this.lastTransClosedAt = this.time.now;
       },
       blocking,
     );
@@ -1825,8 +1913,34 @@ export class GameScene extends Phaser.Scene {
     if (force || key !== this.objectiveKey) {
       this.objectiveKey = key;
       ui.setObjective(o, this.hints.level);
+      this.wpAt = 0;
     }
     ui.setInventory(this.state.inventory);
+    this.chapterCheck(o.chapter ?? null);
+  }
+
+  /**
+   * Phase 5: chapter changes are a small milestone line plus a fading chapter label. No results
+   * screen, no button to press, and Laika keeps moving.
+   */
+  private chapterCheck(ch: number | null): void {
+    if (this.tutorial) return;
+    if (this.lastChapter === undefined) {
+      this.lastChapter = ch;
+      return;
+    }
+    if (ch === this.lastChapter) return;
+    const prev = this.lastChapter;
+    this.lastChapter = ch;
+    const { ui, audio } = svc();
+    if (prev !== null && ch !== null && ch < prev) return; // never announce going "back"
+    const done = prev !== null ? chapter(prev)?.done : undefined;
+    if (done && prev !== 0) {
+      ui.toast(done, "good", undefined, "milestone");
+      audio.sfx("stageDone");
+    }
+    const next = ch !== null ? chapter(ch) : undefined;
+    if (next) this.time.delayedCall(done ? 1600 : 200, () => ui.showChapter(next.label, next.title));
   }
 
   save(): void {
@@ -1899,13 +2013,12 @@ export class GameScene extends Phaser.Scene {
               this.openBasePanel("baseStatus");
             }
           : undefined,
-      onScience:
-        !t && this.state.science.length > 0
-          ? () => {
-              this.resume();
-              this.openBasePanel("science");
-            }
-          : undefined,
+      onJournal: t
+        ? undefined
+        : () => {
+            this.resume();
+            this.openBasePanel("journal");
+          },
       onCheckpoint: () => {
         this.resume();
         this.respawn("Back at the last checkpoint.");
@@ -1963,31 +2076,5 @@ export class GameScene extends Phaser.Scene {
     this.scene.resume();
   }
 
-  private showCompletion(): void {
-    const { ui, audio } = svc();
-    audio.playMusic("ending");
-    audio.sfx("complete");
-    this.player.doAction("celebrate", this.time.now);
-    this.save();
-    this.time.delayedCall(900, () => {
-      this.menu = "complete";
-      this.scene.pause();
-      this.physics.pause();
-      ui.showComplete(
-        completionStats(this.state),
-        () => {
-          ui.closeScreen();
-          this.resume();
-          ui.toast("Explore as long as you like. Thanks for playing!", "good");
-        },
-        () => {
-          this.save();
-          ui.closeScreen();
-          ui.showHud(false);
-          this.menu = "none";
-          this.scene.start("title");
-        },
-      );
-    });
-  }
+
 }

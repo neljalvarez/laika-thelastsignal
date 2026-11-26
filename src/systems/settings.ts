@@ -60,6 +60,10 @@ export interface Settings {
   brightCaves: boolean;
   /** Phase 4: Survival Assistance (suit energy and engineering difficulty). Changeable any time. */
   survival: "relaxed" | "adventure" | "expedition";
+  /** Phase 5: how much the game points the way (guided = an arrow that follows the route). */
+  guidance: "guided" | "explorer" | "minimal";
+  /** Phase 5: simple HUD (one objective; details appear when relevant) or the detailed HUD. */
+  hud: "simple" | "detailed";
   bindings: Record<Action, string>;
 }
 
@@ -77,7 +81,10 @@ export function defaultSettings(prefersReducedMotion = false): Settings {
     textSpeed: "normal",
     captions: true,
     brightCaves: false,
-    survival: "adventure",
+    // Phase 5: new players start in Relaxed (no energy to watch); saved choices are kept.
+    survival: "relaxed",
+    guidance: "guided",
+    hud: "simple",
     bindings: { ...DEFAULT_BINDINGS },
   };
 }
@@ -109,6 +116,8 @@ export function parseSettings(text: string | null, prefersReducedMotion = false)
     captions: typeof raw.captions === "boolean" ? raw.captions : d.captions,
     brightCaves: typeof raw.brightCaves === "boolean" ? raw.brightCaves : d.brightCaves,
     survival: ["relaxed", "adventure", "expedition"].includes(raw.survival as string) ? (raw.survival as Settings["survival"]) : d.survival,
+    guidance: ["guided", "explorer", "minimal"].includes(raw.guidance as string) ? (raw.guidance as Settings["guidance"]) : d.guidance,
+    hud: ["simple", "detailed"].includes(raw.hud as string) ? (raw.hud as Settings["hud"]) : d.hud,
     bindings: { ...DEFAULT_BINDINGS },
   };
   if (typeof raw.bindings === "object" && raw.bindings !== null) {

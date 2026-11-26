@@ -64,9 +64,10 @@ export class TitleScene extends Phaser.Scene {
       },
       onSettings: () => ui.showSettings(svc().settings, (s) => updateSettings(s), () => this.showMenu()),
       onReplayTutorial: this.replayAvailable() ? () => this.replayTutorial() : undefined,
+      onControls: () => ui.showControls(() => this.showMenu()),
       onCredits: () =>
         ui.showInfo(
-          "About & Credits",
+          "Credits",
           [
             ...DEDICATION,
             "Design, code and pixel art: made for this project (art is generated in code from the original LAIKA palette and character design).",
