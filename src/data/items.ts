@@ -1,5 +1,20 @@
 /** Data-driven item definitions. Add a new resource here and give it an icon in art/icons.ts. */
-export type ItemId = "metal" | "electronics" | "commsModule" | "sample" | "treat" | "coupling" | "relayCell" | "recording" | "roverPart";
+export type ItemId =
+  | "metal"
+  | "electronics"
+  | "commsModule"
+  | "sample"
+  | "treat"
+  | "coupling"
+  | "relayCell"
+  | "recording"
+  | "roverPart"
+  // Phase 4: unique mission items (never bought with metal/electronics, so optional spending can never block the story)
+  | "regulator"
+  | "recyclerPart"
+  | "waterCoupling"
+  | "seeds"
+  | "powerCell";
 
 export interface ItemDef {
   id: ItemId;
@@ -87,9 +102,49 @@ export const ITEMS: Record<ItemId, ItemDef> = {
     critical: false,
     alwaysShow: false,
   },
+  regulator: {
+    id: "regulator",
+    name: "Battery Regulator",
+    short: "Regulator",
+    blurb: "A spare from the ship. The battery station needs it.",
+    critical: true,
+    alwaysShow: false,
+  },
+  recyclerPart: {
+    id: "recyclerPart",
+    name: "Pump Cartridge",
+    short: "Cartridge",
+    blurb: "The recycler's missing pump cartridge.",
+    critical: true,
+    alwaysShow: false,
+  },
+  waterCoupling: {
+    id: "waterCoupling",
+    name: "Melt-Line Coupling",
+    short: "Melt Line",
+    blurb: "Connects melted ice to the outpost's water system.",
+    critical: true,
+    alwaysShow: false,
+  },
+  seeds: {
+    id: "seeds",
+    name: "Seed Container",
+    short: "Seeds",
+    blurb: "Lettuce seeds, sealed and ready to grow.",
+    critical: true,
+    alwaysShow: false,
+  },
+  powerCell: {
+    id: "powerCell",
+    name: "Spare Power Cell",
+    short: "Power Cell",
+    blurb: "Enough to wake an old recharge post.",
+    critical: false,
+    alwaysShow: false,
+  },
 };
 
-export const ITEM_ORDER: ItemId[] = ["commsModule", "coupling", "relayCell", "metal", "electronics", "sample", "treat", "recording", "roverPart"];
+export const ITEM_ORDER: ItemId[] = ["commsModule", "coupling", "relayCell", "regulator", "recyclerPart", "waterCoupling", "seeds", "powerCell", "metal", "electronics", "sample", "treat", "recording", "roverPart"];
 
 /** Costs are data, so balancing never touches code. */
 export type Cost = Partial<Record<ItemId, number>>;

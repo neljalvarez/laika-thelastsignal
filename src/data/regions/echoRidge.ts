@@ -62,6 +62,9 @@ const TERRAIN: TerrainOp[] = [
   fill(T.Ledge, 8, 12, 38, 38),
   fill(T.Ledge, 14, 16, 34, 34),
   fill(T.RidgeRock, 20, 23, 30, 33), // weather-station pillar
+  // Phase 4, Challenge C "High observation platform": an old survey scaffold 7 tiles above the
+  // pillar. Only a suit-boosted second air jump (Thruster Boots + stored suit energy) reaches it.
+  fill(T.Scaffold, 17, 22, 23, 23),
   fill(T.Ledge, 26, 28, 33, 33), // drop-off towards the boulder top
 
   // 5: Ridge Camp mesa, with a habitat ruin hidden inside a rock knob.
@@ -135,6 +138,10 @@ const OBJECTS: WorldObject[] = [
   { id: "relay_c", kind: "relay", col: 34, row: 42, label: "Relay C", symbol: "square", aim: 4 },
   { id: "secret_niche", kind: "secret", col: 39, row: 42, label: "loose rock" },
 
+  // ---- Phase 4, Challenge C: the high observation platform ----
+  { id: "telescope_north", kind: "facility", part: "telescopeNorth", col: 20, row: 23, label: "survey telescope" },
+  { id: "rover_camera", kind: "pickup", col: 17, row: 23, item: "roverPart", label: "R-2's lost camera" },
+
   // ---- 4: high ledges (Thruster Boots) ----
   {
     id: "sample_olivine",
@@ -160,6 +167,7 @@ const OBJECTS: WorldObject[] = [
 
   // ---- 5: Ridge Camp ----
   { id: "cp_ridge_camp", kind: "checkpoint", col: 53, row: 34, label: "Ridge Camp" },
+  { id: "recharge_camp", kind: "recharge", col: 55, row: 34, label: "camp charger" },
   { id: "comms_junction", kind: "commsJunction", col: 58, row: 34, label: "ridge junction" },
   {
     id: "log_camp",
@@ -186,6 +194,7 @@ const OBJECTS: WorldObject[] = [
 
   // ---- 7: tower ----
   { id: "tower_console", kind: "towerConsole", col: 99, row: 10, label: "tower console" },
+  { id: "recharge_tower", kind: "recharge", col: 95, row: 10, label: "tower charger" },
   { id: "cp_ridge_tower", kind: "checkpoint", col: 103, row: 10, label: "Tower Top", hidden: true },
   { id: "ridge_cable", kind: "transit", col: 105, row: 10, label: "cable car", link: "skyline" },
 

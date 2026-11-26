@@ -18,6 +18,11 @@ export interface JumpAbility {
 
 export const BASIC_JUMP: JumpAbility = { up: 3, across: 4 };
 export const BOOTS_JUMP: JumpAbility = { up: 5, across: 6 };
+/**
+ * Phase 4: Thruster Boots plus the suit's boosted second air jump (needs suit energy). The real
+ * triple jump climbs about 8.9 tiles (3.5 + 2.7 + 2.7); this stays conservative.
+ */
+export const BOOST_JUMP: JumpAbility = { up: 7, across: 7 };
 
 const key = (c: number, r: number) => r * 10000 + c;
 export const cellKey = key;

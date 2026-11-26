@@ -15,6 +15,7 @@ import { allPanelsClean, isPowered, SOLAR_PANELS, type GameState } from "./state
 export type { AnimName, Effect, Interaction, InteractionContext, WorldEvent } from "./effects";
 import type { Effect, Interaction, InteractionContext } from "./effects";
 import { acousticBark, getRegionInteraction, performRegionInteraction } from "./puzzles";
+import { performPhase4, phase4Interaction, syncScience } from "./facilities";
 
 export function costText(cost: Cost): string {
   return (Object.keys(cost) as ItemId[]).map((k) => `${cost[k]} ${ITEMS[k].short}`).join(" + ");
@@ -25,6 +26,9 @@ function itemLabel(o: WorldObject): string {
 }
 
 export function getInteraction(o: WorldObject, s: GameState, ctx: InteractionContext): Interaction | null {
+  // Phase 4 first: new kinds, plus Mission 04 behaviour of a few older objects (battery, habitat...).
+  const p4 = phase4Interaction(o, s, ctx);
+  if (p4 !== undefined) return p4;
   const powered = isPowered(s);
   switch (o.kind) {
     case "shipRadio":
@@ -121,6 +125,15 @@ function powerCheck(s: GameState, wasPowered: boolean, fx: Effect[]): void {
 
 /** Applies E on an object. Mutates `s`. Returns effects for presentation (empty if nothing happened). */
 export function performInteraction(o: WorldObject, s: GameState, ctx: InteractionContext): Effect[] {
+  const fx = performInteractionInner(o, s, ctx);
+  // Phase 4: the science journal follows achievements (a quiet caption, never a pop-up).
+  for (const id of syncScience(s)) fx.push({ type: "science", id });
+  return fx;
+}
+
+function performInteractionInner(o: WorldObject, s: GameState, ctx: InteractionContext): Effect[] {
+  const p4 = performPhase4(o, s, ctx);
+  if (p4 !== undefined) return p4;
   const fx: Effect[] = [];
   if (!getInteraction(o, s, ctx)) return fx;
   const wasPowered = isPowered(s);

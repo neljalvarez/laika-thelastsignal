@@ -87,6 +87,18 @@ export const TERRAIN: TerrainOp[] = [
   fill(T.Crate, 84, 85, 22, 23),
   fill(T.Crate, 86, 86, 23, 23),
 
+  // Phase 4: the Outpost Lower Level, a compact maintenance level cut into the regolith under the
+  // outpost (the surface above is untouched). Rooms are on rows 26-30, the floor is row 31.
+  //   40-49 radiation shelter (double hull walls) | 50-56 maintenance bay | 57-65 habitat quarters
+  //   66-72 life support | 73-81 grow room (under the greenhouse dome) | 82-88 water room
+  clear(40, 88, 26, 30),
+  back(B.Station, 40, 88, 26, 30),
+  fill(T.Hull, 40, 41, 26, 30), // shelter: thick west wall
+  fill(T.Hull, 48, 49, 26, 28), // shelter: thick east wall over the doorway
+  fill(T.Hull, 40, 49, 25, 25), // shelter: thick roof under the soil
+  back(B.Hull, 42, 47, 26, 30),
+  fill(T.Hull, 88, 88, 26, 30), // east end of the lower level
+
   // ---------------- C: Crimson Canyon ----------------
   surface(T.Rock, 94, 95, 25),
   surface(T.Rock, 96, 97, 26),
@@ -214,7 +226,11 @@ export type ObjectKind =
   | "towerConsole"
   | "cableControl"
   | "acousticSensor"
-  | "locker";
+  | "locker"
+  // Phase 4
+  | "facility" // a part of the outpost's engineering (see `part` and systems/facilities.ts)
+  | "recharge" // suit-energy recharge station
+  | "stairs"; // same-map passage with a short fade (habitat <-> lower level)
 
 export interface WorldObject {
   id: string;
@@ -240,7 +256,32 @@ export interface WorldObject {
   symbol?: "tri" | "circle" | "square";
   /** Phase 3: relay dish target direction (0 = left, 1 = up-left, 2 = up, 3 = up-right). */
   aim?: number;
+  /** Phase 4: which engineering part a "facility" object is (systems/facilities.ts). */
+  part?: FacilityPart;
+  /** Phase 4: where "stairs" lead on the same map (tile column, ground row). */
+  to?: [col: number, row: number];
+  /** Phase 4: a recharge station that only works after a repair (Challenge A). */
+  broken?: boolean;
 }
+
+export type FacilityPart =
+  | "cargoLocker"
+  | "baseTerminal"
+  | "probeOut"
+  | "probeIn"
+  | "shelterTerminal"
+  | "distConsole"
+  | "bed"
+  | "storage"
+  | "recycler"
+  | "recyclerPower"
+  | "growPower"
+  | "planter"
+  | "growValve"
+  | "waterProcessor"
+  | "seismometer"
+  | "deepProbe"
+  | "telescopeNorth";
 
 export const OBJECTS: WorldObject[] = [
   // ---- A: spacecraft, upper deck (Mission 00 practice objects; never part of the campaign state) ----
@@ -253,9 +294,31 @@ export const OBJECTS: WorldObject[] = [
   { id: "shipRadio", kind: "shipRadio", col: 9, row: 22, label: "ship radio" },
   { id: "metal_ship", kind: "pickup", col: 12, row: 22, item: "metal" },
   { id: "hatch", kind: "hatch", col: 22, row: 22, label: "hatch" },
+  // Phase 4: the ship's cargo locker (battery regulator) and a recharge point by Laika's bed.
+  { id: "recharge_ship", kind: "recharge", col: 5, row: 22, label: "ship charger" },
+  { id: "cargo_locker", kind: "facility", part: "cargoLocker", col: 18, row: 22, label: "cargo locker" },
 
   // ---- B: outpost ----
   { id: "cp_outpost", kind: "checkpoint", col: 30, row: 24, label: "Outpost" },
+  // Phase 4 (surface): recharge post, the shelter's outside probe, the base status terminal.
+  { id: "recharge_outpost", kind: "recharge", col: 27, row: 24, label: "outpost charger" },
+  { id: "probe_surface", kind: "facility", part: "probeOut", col: 50, row: 24, label: "surface probe" },
+  { id: "base_terminal", kind: "facility", part: "baseTerminal", col: 57, row: 24, label: "base terminal" },
+  // Phase 4 (lower level, floor row 31).
+  { id: "shelter_terminal", kind: "facility", part: "shelterTerminal", col: 43, row: 31, label: "shelter monitor" },
+  { id: "probe_shelter", kind: "facility", part: "probeIn", col: 46, row: 31, label: "shelter probe" },
+  { id: "dist_console", kind: "facility", part: "distConsole", col: 52, row: 31, label: "power console" },
+  { id: "buried_cartridge", kind: "buried", col: 55, row: 31, item: "recyclerPart", label: "loose regolith" },
+  { id: "habitat_mat", kind: "facility", part: "bed", col: 57, row: 31, label: "sleeping mat" },
+  { id: "cp_lower", kind: "checkpoint", col: 59, row: 31, label: "Lower Level" },
+  { id: "lower_stairs", kind: "stairs", col: 61, row: 31, to: [60, 24], label: "stairs up" },
+  { id: "habitat_storage", kind: "facility", part: "storage", col: 64, row: 31, label: "storage locker" },
+  { id: "recycler", kind: "facility", part: "recycler", col: 68, row: 31, label: "recycler" },
+  { id: "recycler_power", kind: "facility", part: "recyclerPower", col: 71, row: 31, label: "power box" },
+  { id: "grow_power", kind: "facility", part: "growPower", col: 74, row: 31, label: "grow-room power" },
+  { id: "planter", kind: "facility", part: "planter", col: 77, row: 31, label: "planter" },
+  { id: "grow_valve", kind: "facility", part: "growValve", col: 80, row: 31, label: "water valve" },
+  { id: "water_processor", kind: "facility", part: "waterProcessor", col: 84, row: 31, label: "water processor" },
   {
     id: "sign_outpost",
     kind: "sign",
@@ -329,6 +392,10 @@ export const OBJECTS: WorldObject[] = [
   },
   { id: "metal_mesa", kind: "pickup", col: 135, row: 24, item: "metal" },
   { id: "elec_canyon", kind: "buried", col: 158, row: 28, item: "electronics" },
+  // Phase 4, Challenge A "Forgotten instrument": an old recharge post and the seismometer it once powered.
+  { id: "recharge_canyon", kind: "recharge", col: 153, row: 28, label: "old recharge post", broken: true },
+  { id: "seismometer", kind: "facility", part: "seismometer", col: 155, row: 28, label: "seismometer" },
+  { id: "buried_cell", kind: "buried", col: 162, row: 28, item: "powerCell", label: "power cell" },
   { id: "cp_rover", kind: "checkpoint", col: 166, row: 28, label: "Rover Wreck" },
   { id: "elec_rover", kind: "buried", col: 170, row: 28, item: "electronics" },
   {
@@ -359,6 +426,7 @@ export const OBJECTS: WorldObject[] = [
 
   // ---- D: research station ----
   { id: "stationDoor", kind: "stationDoor", col: 214, row: 24, label: "station door" },
+  { id: "recharge_station", kind: "recharge", col: 218, row: 24, label: "station charger" },
   { id: "cp_station", kind: "checkpoint", col: 219, row: 24, label: "Ares Station" },
   {
     id: "log_station",

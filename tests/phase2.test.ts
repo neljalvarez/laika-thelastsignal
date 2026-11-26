@@ -40,7 +40,7 @@ describe("save migration v1 -> v2", () => {
     const s = r.state;
     expect(s.version).toBe(STATE_VERSION); // migrates step by step to the current format (v3 since Phase 3)
     // Every Phase 1 item count is kept exactly; items added in later phases start at zero.
-    expect(s.inventory).toEqual({ ...v1.inventory, coupling: 0, relayCell: 0, recording: 0, roverPart: 0 });
+    expect(s.inventory).toEqual({ ...v1.inventory, coupling: 0, relayCell: 0, recording: 0, roverPart: 0, regulator: 0, recyclerPart: 0, waterCoupling: 0, seeds: 0, powerCell: 0 });
     expect(s.abilities).toEqual({ sniff: true, sweep: true, thrusters: true, bark: true, headlamp: false }); // Headlamp: Phase 3, not yet found
     expect(s.flags.solarRepaired).toBe(true);
     expect(s.checkpoint).toBe("cp_rover");

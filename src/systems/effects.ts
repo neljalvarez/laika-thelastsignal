@@ -38,7 +38,32 @@ export type WorldEvent =
   | "freightUnlocked"
   | "locker"
   | "mission02Complete"
-  | "mission03Complete";
+  | "mission03Complete"
+  // Phase 4
+  | "m4Brief"
+  | "batteryRestored"
+  | "recyclerFixed"
+  | "recyclerPowered"
+  | "recyclerOn"
+  | "waterOn"
+  | "growPowered"
+  | "valveOpen"
+  | "planted"
+  | "growLights"
+  | "harvest"
+  | "shelterAwake"
+  | "probeRead"
+  | "shelterOn"
+  | "rest"
+  | "recharge"
+  | "postFixed"
+  | "seismometer"
+  | "deepProbe"
+  | "telescope"
+  | "lightsOut"
+  | "lightsOutBalanced"
+  | "lightsOutDone"
+  | "m4Complete";
 
 export type AnimName = "interact" | "dig" | "sweep" | "celebrate" | "repair" | "bark";
 
@@ -55,7 +80,13 @@ export type Effect =
   | { type: "read"; title: string; lines: string[] }
   | { type: "save" }
   /** Phase 3: move to another map through a connection (lift, gate, cable car). */
-  | { type: "travel"; connection: string; map: string; arrive: string };
+  | { type: "travel"; connection: string; map: string; arrive: string }
+  /** Phase 4: stairs on the same map (habitat dome <-> lower level), with a short fade. */
+  | { type: "stairs"; to: [number, number] }
+  /** Phase 4: open an overlay (base status diagram, power distribution console). */
+  | { type: "ui"; panel: "baseStatus" | "distribution" }
+  /** Phase 4: a science journal entry was unlocked. */
+  | { type: "science"; id: string };
 
 export interface Interaction {
   verb: string;
@@ -66,5 +97,7 @@ export interface Interaction {
 export interface InteractionContext {
   /** Buried spots currently revealed by the scanner (runtime only, not saved). */
   revealed: ReadonlySet<string>;
+  /** Phase 4: the Survival Assistance setting (defaults to "adventure"). */
+  mode?: "relaxed" | "adventure" | "expedition";
 }
 

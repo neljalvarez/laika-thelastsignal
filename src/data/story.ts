@@ -105,6 +105,28 @@ export const TRANSMISSIONS: Record<string, Transmission> = {
       { speaker: "SUIT", text: "Who has been waiting for you, Laika? And for how long?" },
     ],
   },
+  // ---- Phase 4: Mission 04 "A Place to Call Home" ----
+  m4Brief: {
+    id: "m4Brief",
+    title: "ARES STATION // BASE PLANNER",
+    lines: [
+      { speaker: "CONSOLE", text: "Signal window open. Source: north, 1,200 km. Same 88-minute pattern." },
+      { speaker: "CONSOLE", text: "Expedition check: a trip that far needs a working home base." },
+      { speaker: "CONSOLE", text: "Landing Outpost: SOLAR OK. Battery, life support, water, greenhouse, shelter: OFFLINE." },
+      { speaker: "CONSOLE", text: "Base override sent. Habitat door: UNLOCKED." },
+      { speaker: "SUIT", text: "Suit energy meter online. Let's go home and wake the whole outpost, Laika." },
+    ],
+  },
+  m4Final: {
+    id: "m4Final",
+    title: "OUTPOST // ALL SYSTEMS",
+    lines: [
+      { speaker: "SUIT", text: "Battery charging. Water flowing. Plants growing. Look at this place, Laika!" },
+      { speaker: "RECEIVER", text: "Incoming on the 88-minute window... signal strength up from last time." },
+      { speaker: "???", text: "...good work, little explorer... the northern signal is getting clearer...", static: true },
+      { speaker: "SUIT", text: "Somebody out there is still waiting. And now we have a home to come back to." },
+    ],
+  },
 };
 
 /** Short, optional science tips. Shown once, never block play. */
@@ -115,6 +137,13 @@ export const TIPS = {
   radio: "Radio needs power and an antenna. Mars is minutes away from Earth by radio!",
   gravity: "Mars has about 38% of Earth's gravity, so you can jump much higher.",
   circuit: "A circuit needs every link: one broken connector, and nothing after it gets power.",
+  // Phase 4 contextual micro-tutorials (shown once, when the player first does the thing).
+  storage: "Extra solar power charges the battery. The battery covers the gap when the Sun is weak.",
+  recycler: "The recycler helps recover water, so the base wastes almost none.",
+  plants: "Plants need water and light. The grow lamps are their sunshine.",
+  recharge: "Recharge here to restore suit energy. Look for the lightning symbol.",
+  suitLow: "Suit energy is low: Thruster Boots need a recharge. Walking, jumping and Bark always work.",
+  priority: "Life support is protected: it always gets power first. The console shares out the rest.",
 };
 
 export const DEDICATION = [

@@ -176,7 +176,7 @@ describe("Mission 03: Echoes Above", () => {
     const fx = use(s, "ridge_cable");
     expect(s.flags.ridgeCableOpen).toBe(true);
     expect(fx.some((e) => e.type === "world" && e.event === "mission03Complete")).toBe(true);
-    expect(getObjective(s).stage).toBe("m3_complete");
+    expect(getObjective(s).stage).toBe("m4_call"); // Phase 4: finishing Mission 03 leads straight into Mission 04
     expect(use(s, "station_cable").find((e) => e.type === "travel")).toMatchObject({ map: "ridge", arrive: "cp_ridge_tower" });
   });
 
@@ -241,8 +241,8 @@ describe("world map discovery and routing", () => {
 });
 
 describe("saves (v3) and migration", () => {
-  it("is version 3", () => {
-    expect(STATE_VERSION).toBe(3);
+  it("is at least version 3 (v4 since Phase 4)", () => {
+    expect(STATE_VERSION).toBeGreaterThanOrEqual(3);
   });
 
   it("a completed Phase 2 (v2) save continues into Mission 02 with everything kept", () => {
@@ -258,7 +258,7 @@ describe("saves (v3) and migration", () => {
     expect(res.status).toBe("ok");
     if (res.status !== "ok") return;
     const s = res.state;
-    expect(s.version).toBe(3);
+    expect(s.version).toBe(STATE_VERSION); // v2 -> v3 -> current
     expect(s.inventory).toMatchObject({ metal: 1, electronics: 2, sample: 2, treat: 1, coupling: 0, relayCell: 0 });
     expect(s.collected).toEqual(["metal_ship", "treat", "sample_basalt", "sample_gypsum"]);
     expect(s.flags.demoComplete).toBe(true);
@@ -271,7 +271,7 @@ describe("saves (v3) and migration", () => {
 
   it("v1 saves migrate all the way to v3", () => {
     const m = migrate({ version: 1, flags: {}, abilities: { sniff: true } });
-    expect(m?.version).toBe(3);
+    expect(m?.version).toBe(STATE_VERSION); // v1 -> v2 -> v3 -> current
     expect((m?.abilities as Record<string, unknown>).bark).toBe(true);
   });
 
@@ -352,9 +352,10 @@ describe("saves (v3) and migration", () => {
 
   it("the journal counts optional discoveries across the whole world", () => {
     const j = journal(createNewState());
+    // Phase 4 adds the seismometer's recording, R-2's camera (observation platform) and the deep ice core.
     expect(j.find((e) => e.label === "Golden Treats")?.total).toBe(3);
-    expect(j.find((e) => e.label === "Research recordings")?.total).toBe(2);
-    expect(j.find((e) => e.label === "Rover R-2 parts")?.total).toBe(2);
-    expect(j.find((e) => e.label === "Geological samples")?.total).toBe(6);
+    expect(j.find((e) => e.label === "Research recordings")?.total).toBe(3);
+    expect(j.find((e) => e.label === "Rover R-2 parts")?.total).toBe(3);
+    expect(j.find((e) => e.label === "Geological samples")?.total).toBe(7);
   });
 });
