@@ -6,6 +6,12 @@ import type { Cost, ItemId } from "../data/items";
 import type { TIPS } from "../data/story";
 
 export type WorldEvent =
+  // Phase 5
+  | "crafted"
+  | "m5Brief"
+  | "blueprint"
+  | "beaconFound"
+  | "m5Complete"
   | "hatchOpen"
   | "solarRepaired"
   | "panelClean"
@@ -84,7 +90,7 @@ export type Effect =
   /** Phase 4: stairs on the same map (habitat dome <-> lower level), with a short fade. */
   | { type: "stairs"; to: [number, number] }
   /** Phase 4: open an overlay (base status diagram, power distribution console). */
-  | { type: "ui"; panel: "baseStatus" | "distribution" }
+  | { type: "ui"; panel: "baseStatus" | "distribution" | "workbench" }
   /** Phase 4: a science journal entry was unlocked. */
   | { type: "science"; id: string };
 

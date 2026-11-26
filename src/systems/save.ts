@@ -13,7 +13,8 @@ import { sectionAt } from "./regions";
 import { ENGINEERING, SUIT } from "../data/engineering";
 import { SCIENCE_IDS } from "../data/science";
 import { syncScience } from "./facilities";
-import { ALL_FLAGS, createEngState, createNewState, RELAY_START_AIM, SOLAR_PANELS, STATE_VERSION, type AbilityId, type FlagId, type GameState } from "./state";
+import { EQUIPMENT_ORDER, COSMETIC_ORDER, GEAR } from "../data/equipment";
+import { ALL_FLAGS, createEngState, createGearState, createNewState, RELAY_START_AIM, SOLAR_PANELS, STATE_VERSION, type AbilityId, type FlagId, type GameState } from "./state";
 
 export interface KeyValueStore {
   getItem(key: string): string | null;
@@ -77,6 +78,10 @@ export function migrate(raw: Record<string, unknown>): Record<string, unknown> |
     data = { ...data, version: 4, eng: createEngState(), science: [] };
     v = 4;
   }
+  if (v === 4) {
+    data = { ...data, version: 5, gear: createGearState() };
+    v = 5;
+  }
   if (v === STATE_VERSION) return data;
   return null; // unknown / future version: incompatible
 }
@@ -129,10 +134,15 @@ export function sanitize(raw: Record<string, unknown>): GameState {
     battery: num(e.battery, 0, Math.max(...Object.values(ENGINEERING.batteryCapacity)), 0),
     alloc: { water: al.water !== false, greenhouse: al.greenhouse !== false, research: al.research !== false },
     growMs: num(e.growMs, 0, ENGINEERING.growStageMs[ENGINEERING.growStageMs.length - 1], 0),
-    suit: num(e.suit, 0, SUIT.max, base.suit),
+    suit: num(e.suit, 0, isObj(raw.gear) && strArray(raw.gear.built).includes("reserveBattery") ? GEAR.reserveSuitMax : SUIT.max, base.suit),
     dusty: [...new Set(strArray(e.dusty).filter((p) => SOLAR_PANELS.includes(p)))],
   };
   s.science = [...new Set(strArray(raw.science).filter((id) => SCIENCE_IDS.has(id)))];
+  // Phase 5 workbench: only known equipment / cosmetics, no duplicates; a broken block recovers.
+  const g = isObj(raw.gear) ? raw.gear : {};
+  const eq = (v: unknown) => [...new Set(strArray(v).filter((id) => (EQUIPMENT_ORDER as string[]).includes(id) && id !== "boots"))] as GameState["gear"]["built"];
+  const bp = [...new Set(["boots", ...strArray(g.blueprints).filter((id) => (EQUIPMENT_ORDER as string[]).includes(id))])] as GameState["gear"]["blueprints"];
+  s.gear = { ...createGearState(), built: eq(g.built), blueprints: bp, wear: [...new Set(strArray(g.wear).filter((id) => (COSMETIC_ORDER as string[]).includes(id)))] as GameState["gear"]["wear"] };
   // Tutorial record: anything unreadable recovers to "skipped" so a broken record can never trap
   // the player in Mission 00 or lock them out of the campaign.
   const t = isObj(raw.tutorial) ? raw.tutorial : null;
@@ -145,7 +155,9 @@ export function sanitize(raw: Record<string, unknown>): GameState {
 
 /** How many of an item exist on the SURFACE map and have not been collected yet (the solar repair happens there). */
 export function uncollected(s: GameState, item: ItemId): number {
-  return OBJECTS.filter((o) => o.item === item && !s.collected.includes(o.id)).length;
+  // Only parts Laika can reach during Mission 01: not gear-gated caches, not the outpost's lower level.
+  const lowerLevel = (o: (typeof OBJECTS)[number]) => o.row >= 26 && o.col >= 40 && o.col <= 88;
+  return OBJECTS.filter((o) => o.item === item && !o.needs && !lowerLevel(o) && !s.collected.includes(o.id)).length;
 }
 
 /** Relay dish targets, from the relay objects' data. */
@@ -281,6 +293,29 @@ function repairOnce(s: GameState): string[] {
   critical("coupling", "coupling_cache", f.circuitRestored, s.collected.includes("coupling_cache") || s.inventory.coupling > 0);
   critical("relayCell", "sampler", f.cellInstalled, s.collected.includes("sampler") || s.inventory.relayCell > 0 || f.relayAnalyzed);
 
+  // Phase 5: Chapter 5 milestones, and the Phase 5 simplifications applied to older saves
+  // (the battery powers every room, water opens the grow valve, two readings finish the shelter).
+  imply(f.m5Complete, "beaconFound", "chapter 5 complete implies beacon found");
+  imply(f.beaconFound, "m5Blueprint", "beacon found implies blueprint");
+  imply(f.m5Blueprint, "m5Briefed", "blueprint implies chapter 5 started");
+  imply(f.m5Briefed, "m4Complete", "chapter 5 implies chapter 4 done");
+  imply(f.batteryRestored, "recyclerPowered", "battery powers life support");
+  imply(f.batteryRestored, "growPowered", "battery powers the grow room");
+  imply(f.waterRestored, "growValveOpen", "water opens the grow valve");
+  imply(f.probeInRead && f.probeOutRead, "shelterRestored", "two readings finish the shelter");
+  if (f.m5Blueprint && !s.gear.blueprints.includes("booster")) {
+    s.gear.blueprints.push("booster");
+    fixed.push("booster blueprint");
+  }
+  if (f.m5Complete) {
+    for (const id of EQUIPMENT_ORDER) if (!s.gear.blueprints.includes(id)) s.gear.blueprints.push(id);
+  }
+  if (f.beaconFound && !s.collected.includes("beacon_cache")) {
+    s.collected.push("beacon_cache");
+    fixed.push("beacon cache emptied");
+  }
+  if (s.eng.suit > (s.gear.built.includes("reserveBattery") ? GEAR.reserveSuitMax : SUIT.max)) s.eng.suit = s.gear.built.includes("reserveBattery") ? GEAR.reserveSuitMax : SUIT.max;
+
   // Phase 4: later restoration milestones imply earlier ones (hand-edited or interrupted saves stay completable).
   imply(f.m4Complete, "lightsOutDone", "mission 04 complete implies lights out done");
   imply(f.lightsOutDone, "lightsOutBalanced", "lights out done implies balanced");
@@ -306,7 +341,7 @@ function repairOnce(s: GameState): string[] {
   imply(f.seismometerRead, "canyonPostFixed", "seismometer read implies post fixed");
   // Phase 4 mission items: one each, never lost while still needed, gone once installed.
   const marker = (id: string) => s.seen.includes(`took:${id}`);
-  const unique = (item: "regulator" | "recyclerPart" | "waterCoupling" | "seeds" | "powerCell", usedUp: boolean, gotIt: boolean) => {
+  const unique = (item: "regulator" | "recyclerPart" | "waterCoupling" | "seeds" | "powerCell" | "navBeacon", usedUp: boolean, gotIt: boolean) => {
     if (usedUp && s.inventory[item] > 0) {
       s.inventory[item] = 0;
       fixed.push(`removed spent ${item}`);
@@ -321,6 +356,7 @@ function repairOnce(s: GameState): string[] {
   unique("waterCoupling", f.waterRestored, marker("drill_coupling"));
   unique("seeds", f.seedsPlanted, marker("habitat_storage"));
   unique("powerCell", f.canyonPostFixed, s.collected.includes("buried_cell"));
+  unique("navBeacon", f.m5Complete, s.collected.includes("beacon_cache"));
   // An installed part's source is empty: the world never offers a second one (no free duplicates).
   const taken = (used: boolean, kind: "collected" | "seen", id: string) => {
     const list = kind === "collected" ? s.collected : s.seen;

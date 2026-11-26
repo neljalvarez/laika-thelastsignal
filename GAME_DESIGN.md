@@ -319,6 +319,89 @@ a note that the units are made up). The Science Journal (Pause → Science journ
 Each entry: a short line, "Learn more" (the real science), an "In the game" note (what is fiction) and its source.
 Entries unlock from what Laika does and are announced with a quiet toast, never a pop-up over play.
 
+## Phase 5: simpler to play, gear to build
+
+Phase 5 started from one round of player feedback: too much text, overstimulating, "I don't know what to do",
+confusing objectives, and "finishing Mission 01 feels like the end of the game". 60 % of the work went into
+simplification, 30 % into crafting, 10 % into testing.
+
+### Text budget
+
+| Kind | Budget | Example (before → after) |
+| --- | --- | --- |
+| Objective | 3–7 words | "Frozen Depths: take the spare melt-line coupling from the core drill." → "Get the pipe connector" |
+| Objective hint | a few words | "Ride the survey lift down (next to the workstation). The core drill is just east of the lift hall." → "At the ice drill, down the lift." |
+| Action prompt | 1–3 words | "Ride the survey lift down" → "Lift down"; "Take the spare melt-line coupling" → "Take pipe connector" |
+| Item | plain name | Electronic Component → Circuit; Comms Module → Radio Part; Pump Cartridge → Pump; Melt-Line Coupling → Pipe Connector; Battery Regulator → Battery Part |
+| Transmission | 2 short lines | the unknown signal was 4 lines; now 2, the full text is kept in Journal → Radio |
+| Tutorial step | one line + the control | "Let's get moving!" + "A / D or ← / → to move." → "Move right." + "(A) (D) or (← →)" |
+
+Word budgets are enforced by unit tests (`tests/phase5.test.ts`, "simplified text").
+
+### Screen
+
+One objective line with a direction arrow and the action key. Everything else is contextual: the inventory peeks
+when it changes, the suit meter appears when energy is low or after a boosted jump, the power chip at the base or
+in LIGHTS OUT. Settings → Gameplay help → Screen info: **Simple** (default) or **Detailed** (the Phase 4 HUD).
+
+### Chapters
+
+| Chapter | Missions | Ends with |
+| --- | --- | --- |
+| Prologue | Mission 00 tutorial | straight into Chapter 1 |
+| 1 The Lost Signal | Mission 01 | "Signal traced!" → relay logs arrive by radio |
+| 2 Beneath the Red | Mission 02 | "Relay cell decoded!" |
+| 3 Echoes Above | Mission 03 | "Tower online!" → the station calls by itself |
+| 4 A Place to Call Home | Mission 04 | "Base restored!" → the call for better gear |
+| 5 Built to Explore | Mission 05 | "Ready for the north!" → explore |
+
+No completion screens: a milestone toast, then a chapter banner, then the next objective. The player never has to
+walk back to a console to learn that the story continues (this also fixes the Phase 4 dead end where the habitat
+ladder stayed shut until the Ares console was used).
+
+### Guidance
+
+Guided (default): the marker is always shown and follows a reachable route (around walls, via the habitat ladder,
+to the nearest open lift). Explorer: only after the hint system decides the player is stuck. Minimal: only the
+objective's direction arrow. The ? button shows the marker for a few seconds in every mode. Tapping a checkpoint on
+the map sets a temporary marker there.
+
+### Mission 04, fewer chores
+
+Removed or merged: the base survey and logs, separate recycler inspect / power / switch-on presses, the grow valve
+press, separate "lights on", and the trip back to the shelter monitor. Battery restored ⇒ rooms powered; one press
+installs and starts life support; water repair opens the grow valve; planting switches the lights on; the second
+probe bark finishes the shelter. Survival Assistance defaults to Relaxed for new players.
+
+### Crafting and equipment
+
+The outpost workstation is now the **workbench**: large cards, two materials, one BUILD button that says what is
+missing (NEED MORE PARTS / NO POWER / ✔ BUILT). Building closes the bench so the player sees the gear appear on Laika.
+
+| Equipment | Cost | Needs | Effect | Optional use |
+| --- | --- | --- | --- | --- |
+| Thruster Boots | 2 Metal, 1 Circuit | – | double jump (Phase 1 ability) | high ledges everywhere |
+| Signal Booster | 2 Metal, 1 Circuit | – | scanner range ×1.6, reveal ×1.35, finds faint caches | lost Nav Beacon (Mission 05), a metal cache in the canyon |
+| Thruster Upgrade (efficient boots) | 3 Metal, 2 Circuits | boots | thrust and boost cost half | longer climbs on one charge |
+| Survey Headlamp | 1 Metal, 2 Circuits | Headlamp | light ×1.35 | a survey cache in the Frozen Depths fissure |
+| Reserve Battery | 3 Metal, 1 Circuit | – | suit energy 150, higher reserve floor | Expedition-mode climbs |
+
+The world holds 13 Metal and 9 Circuits, exactly what Mission 01 and every upgrade need; every new part is reachable
+with the starting jump (unit-tested). Recipes can never use mission items. Upgrades are permanent and automatic; there
+are no loadouts. Blueprints: boots from the start, booster in Chapter 5, the rest after Chapter 5.
+
+### Mission 05: Built to Explore (3–5 minutes)
+
+The station call → the workbench (new blueprint) → two Metal and a Circuit downstairs → build the Signal Booster →
+sniff out the lost Nav Beacon near the canyon entrance → link it at the radio dish. Ends with a short radio reply and
+"Explore. The signal waits north".
+
+### Rewards
+
+Five looks (Survey Stripe, Mission Patch, Blue Trim, Copper Pack, Star Collar), unlocked by play, toggled in the
+Journal's Gear tab, purely visual. Laika's room fills up by itself: a sample shelf (3 samples), the mission patch
+poster (Chapter 4), a photo (a Golden Treat), a rover model (2 rover parts).
+
 ## World layout (tiles are 16 px; the world is 240 × 34 tiles)
 
 ```
@@ -397,9 +480,9 @@ her head.
 
 | Item | Where | Use |
 | --- | --- | --- |
-| Salvaged Metal ×5 | ship, crates, canyon (buried), mesa, cavern | Solar repair (2), Thruster Boots (2) |
-| Electronic Component ×4 | outpost (buried), pit floor, canyon (buried), rover (buried) | Solar repair (1), Thruster Boots (1) |
-| Comms Module ×1 | buried by the rover | Receiver (mission-critical, can never be lost) |
+| Metal ×13 (Phase 1: 5) | ship, crates, canyon, mesa, cavern; Phase 5 adds the lower level, Frozen Depths, Echo Ridge and a booster cache | Solar repair (2) and the workbench |
+| Circuit ×9 (Phase 1: 4) | outpost, pit floor, canyon, rover; Phase 5 adds the lower level, Frozen Depths, Echo Ridge and a lamp cache | Solar repair (1) and the workbench |
+| Radio Part ×1 (was Comms Module) | buried by the rover | Receiver (mission-critical, can never be lost) |
 | Geological Sample ×3 | mesa ledge (basalt), boots ledge (hematite "blueberry"), rim (gypsum vein, buried) | Optional; each shows a one-line fact |
 | Golden Treat ×1 | secret room | Optional collectible |
 

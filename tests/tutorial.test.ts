@@ -164,14 +164,17 @@ describe("Prompts adapt to the control scheme and bindings", () => {
 
   it("shows keyboard, touch and gamepad wording", () => {
     const base: PromptContext = { device: "keyboard", keys: keys() };
-    expect(move.instruction(base)).toBe("A / D or ← / → to move.");
-    expect(move.instruction({ ...base, device: "touch" })).toBe("Use the movement buttons to walk.");
+    // Phase 5: the instruction is the control itself (the short goal is the stage title).
+    expect(move.instruction(base)).toBe("(A) (D) or (← →)");
+    expect(move.instruction({ ...base, device: "touch" })).toBe("(◀) (▶)");
     expect(move.instruction({ ...base, device: "gamepad" })).toContain("left stick");
-    expect(jump.instruction(base)).toBe("Hold Space to hop over the crate.");
+    expect(jump.instruction(base)).toBe("Hold Space");
+    expect(move.title).toBe("Move right.");
+    expect(jump.title).toBe("Jump over the crate.");
   });
 
   it("follows remapped keys", () => {
     const s = rebind(defaultSettings(), "jump", "KeyK");
-    expect(jump.instruction({ device: "keyboard", keys: keys(s.bindings) })).toBe("Hold K to hop over the crate.");
+    expect(jump.instruction({ device: "keyboard", keys: keys(s.bindings) })).toBe("Hold K");
   });
 });

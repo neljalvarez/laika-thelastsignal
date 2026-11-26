@@ -4,11 +4,12 @@
  * setting and works with screen readers. It is updated only when something changes, never
  * once per physics frame.
  */
+import { NOTE_MS, NoteQueue, type NoteKind } from "../systems/notifications";
 import { ITEM_ORDER, ITEMS, type ItemId } from "../data/items";
 import type { Transmission } from "../data/story";
 import { iconUrl } from "../art/icons";
 import type { Objective } from "../systems/mission";
-import { ACTION_LABELS, DEFAULT_BINDINGS, keyLabel, REMAPPABLE, type Action, type Settings } from "../systems/settings";
+import { ACTION_LABELS, DEFAULT_BINDINGS, defaultSettings, keyLabel, REMAPPABLE, type Action, type Settings } from "../systems/settings";
 import type { SignalLevel } from "../systems/sniff";
 import type { InputManager, TouchButton } from "../input/InputManager";
 
@@ -92,6 +93,7 @@ export class UI {
     hintBtn.title = "Hint";
     hintBtn.setAttribute("aria-label", "Show a hint");
     const pauseBtn = button("II", () => this.onPauseButton?.(), "hud-btn interactive");
+    this.pauseBtn = pauseBtn;
     pauseBtn.title = "Pause";
     pauseBtn.setAttribute("aria-label", "Pause");
     const mapBtn = button("▦", () => this.onMapButton?.(), "hud-btn interactive");
@@ -138,6 +140,7 @@ export class UI {
     this.settings = s;
     document.documentElement.style.setProperty("--ui-scale", String(s.textScale * this.fit));
     document.body.classList.toggle("reduced-motion", s.reducedMotion);
+    document.body.classList.toggle("hud-detailed", s.hud === "detailed");
     if (this.currentObjective) this.setObjective(this.currentObjective);
     this.updateTouchVisibility();
     this.onSettingsApplied?.();
@@ -170,24 +173,31 @@ export class UI {
     this.hintLevel = hintLevel;
     const box = this.objectiveEl;
     box.replaceChildren();
-    box.classList.toggle("expanded", this.expanded);
-    const label = el("div", "title");
-    label.append(el("span", "", o.title));
-    const toggle = button(this.expanded ? "▴ Less" : "▾ Details", () => {
-      this.expanded = !this.expanded;
-      this.setObjective(o, this.hintLevel);
-    }, "obj-toggle interactive");
-    toggle.setAttribute("aria-expanded", String(this.expanded));
-    label.append(toggle);
+    const detailed = this.settings.hud === "detailed";
+    box.classList.toggle("expanded", detailed && this.expanded);
+    box.classList.toggle("compact", !detailed);
+    if (detailed) {
+      const label = el("div", "title");
+      label.append(el("span", "", o.title));
+      const toggle = button(this.expanded ? "▴ Less" : "▾ Details", () => {
+        this.expanded = !this.expanded;
+        this.setObjective(o, this.hintLevel);
+      }, "obj-toggle interactive");
+      toggle.setAttribute("aria-expanded", String(this.expanded));
+      label.append(toggle);
+      box.append(label);
+    }
     const main = el("div", "primary");
-    main.append(el("span", "", "▶ "), el("span", "", o.primary));
+    this.dirEl = el("span", "dir", this.dirText);
+    this.dirEl.setAttribute("aria-hidden", "true");
+    main.append(this.dirEl, el("span", "txt", o.primary));
     if (o.action) {
       const a: Action = o.action === "move" ? "right" : o.action;
       main.append(el("span", "key", this.actionLabel(a)));
     }
-    box.append(label, main);
-    if (hintLevel >= 2 && o.hint) box.append(el("div", "hint", `Hint: ${o.hint}`));
-    if (this.expanded) {
+    box.append(main);
+    if (hintLevel >= 2 && o.hint) box.append(el("div", "hint", o.hint));
+    if (detailed && this.expanded) {
       const ul = el("ul");
       for (const st of o.steps) {
         const li = el("li", st.done ? "done" : "");
@@ -206,6 +216,16 @@ export class UI {
         box.append(ol);
       }
     }
+  }
+
+  private dirEl: HTMLElement | null = null;
+  private dirText = "▶";
+  /** Phase 5: the objective line's small direction arrow (from the waypoint system). */
+  setDirection(d: "left" | "right" | "up" | "down" | "here" | null): void {
+    const t = d === "left" ? "◀" : d === "right" ? "▶" : d === "up" ? "▲" : d === "down" ? "▼" : d === "here" ? "●" : "▶";
+    if (t === this.dirText) return;
+    this.dirText = t;
+    if (this.dirEl) this.dirEl.textContent = t;
   }
 
   setHintLevel(level: number): void {
@@ -256,6 +276,7 @@ export class UI {
   }
 
   setInventory(inv: Record<ItemId, number>): void {
+    let changed = false;
     this.inventoryEl.replaceChildren();
     for (const id of ITEM_ORDER) {
       const n = inv[id] ?? 0;
@@ -267,10 +288,24 @@ export class UI {
       img.alt = ITEMS[id].name;
       chip.append(img, el("span", "", id === "commsModule" || id === "treat" ? "" : `×${n}`));
       chip.setAttribute("aria-label", `${ITEMS[id].name}: ${n}`);
-      if ((this.lastInventory.get(id) ?? 0) !== n) chip.classList.add("bump");
+      if ((this.lastInventory.get(id) ?? 0) !== n) {
+        chip.classList.add("bump");
+        changed = true;
+      }
       this.inventoryEl.append(chip);
     }
     for (const id of ITEM_ORDER) this.lastInventory.set(id, inv[id] ?? 0);
+    if (changed && this.inventorySeeded) this.peekInventory(3200);
+    this.inventorySeeded = true;
+  }
+
+  private inventorySeeded = false;
+  private peekTimer: number | null = null;
+  /** Phase 5: show the inventory for a moment (after a pick-up, at the workbench). 0 ms = until told. */
+  peekInventory(ms: number, on = true): void {
+    if (this.peekTimer) window.clearTimeout(this.peekTimer);
+    this.inventoryEl.classList.toggle("peek", on);
+    if (on && ms > 0) this.peekTimer = window.setTimeout(() => this.inventoryEl.classList.remove("peek"), ms);
   }
 
   setPrompt(p: { verb: string; detail?: string } | null): void {
@@ -291,7 +326,31 @@ export class UI {
     }
   }
 
-  toast(text: string, tone: Tone = "info", icon?: ItemId): void {
+  private notes = new NoteQueue();
+  private noteTimer: number | null = null;
+
+  /**
+   * Phase 5: every toast goes through a priority queue: one at a time, no duplicates, pick-ups
+   * merge, warnings first. `kind` overrides the default mapping from the tone.
+   */
+  toast(text: string, tone: Tone = "info", icon?: ItemId, kind?: NoteKind): void {
+    const k: NoteKind = kind ?? (tone === "warn" ? "warn" : icon ? "item" : tone === "good" ? "milestone" : "info");
+    this.notes.push({ text, kind: k, icon, itemKey: icon, amount: 1 }, performance.now());
+    this.pumpNotes();
+  }
+
+  private pumpNotes(): void {
+    const n = this.notes.take(performance.now());
+    if (n) this.showToastNow(n.text, n.kind === "warn" ? "warn" : n.kind === "info" ? "info" : "good", n.icon as ItemId | undefined);
+    if (this.notes.pending > 0 && this.noteTimer === null) {
+      this.noteTimer = window.setTimeout(() => {
+        this.noteTimer = null;
+        this.pumpNotes();
+      }, 400);
+    }
+  }
+
+  private showToastNow(text: string, tone: Tone, icon?: ItemId): void {
     const t = el("div", `toast px-panel ${tone}`);
     if (icon) {
       const img = el("img", "icon-img");
@@ -301,9 +360,21 @@ export class UI {
     }
     t.append(el("span", "", text));
     this.toastsEl.append(t);
-    while (this.toastsEl.children.length > 3) this.toastsEl.firstElementChild?.remove();
-    window.setTimeout(() => t.classList.add("out"), 2600);
-    window.setTimeout(() => t.remove(), 3000);
+    while (this.toastsEl.children.length > 2) this.toastsEl.firstElementChild?.remove();
+    window.setTimeout(() => t.classList.add("out"), NOTE_MS - 400);
+    window.setTimeout(() => t.remove(), NOTE_MS);
+  }
+
+  private pauseBtn: HTMLButtonElement | null = null;
+  /** Phase 5: a small dot on the pause button when the journal has something new. */
+  setJournalBadge(on: boolean): void {
+    this.pauseBtn?.classList.toggle("badge", on);
+    if (this.pauseBtn) this.pauseBtn.setAttribute("aria-label", on ? "Pause (journal has news)" : "Pause");
+  }
+
+  /** Phase 5: a small chapter label that fades by itself (no card to dismiss). */
+  showChapter(label: string, title: string): void {
+    this.showRegion(title.toUpperCase(), label);
   }
 
   showRegion(name: string, sub = ""): void {
@@ -492,20 +563,29 @@ export class UI {
     onSettings: () => void;
     onCredits: () => void;
     onReplayTutorial?: () => void;
+    onControls?: () => void;
     dedication: string;
   }): void {
     const block = el("div", "title-block");
     const logo = el("div", "logo");
     logo.append(document.createTextNode("LAIKA"), el("span", "sub", "THE LAST SIGNAL"));
-    const tagline = el("div", "tagline", "One small dog. One lost signal. An entire planet to explore.");
+    const tagline = el("div", "tagline", "One small dog. One lost signal.");
     const buttons = el("div", "title-buttons");
-    if (opts.canContinue) buttons.append(button("▶ Continue", opts.onContinue));
+    if (opts.canContinue) buttons.append(button("▶ Continue", opts.onContinue, "px-btn big"));
     buttons.append(
-      button(opts.canContinue ? "New Game" : "▶ New Game", opts.onNew, opts.canContinue ? "px-btn secondary" : "px-btn"),
+      button(opts.canContinue ? "New Game" : "▶ New Game", opts.onNew, opts.canContinue ? "px-btn secondary" : "px-btn big"),
       button("Settings", opts.onSettings, "px-btn secondary"),
-      button("About & Credits", opts.onCredits, "px-btn secondary"),
     );
-    if (opts.onReplayTutorial) buttons.insertBefore(button("Replay Tutorial", opts.onReplayTutorial, "px-btn secondary"), buttons.children[2] ?? null);
+    // Phase 5: secondary options live behind one small button.
+    const more = el("div", "title-more hidden");
+    if (opts.onReplayTutorial) more.append(button("Tutorial", opts.onReplayTutorial, "px-btn secondary small"));
+    if (opts.onControls) more.append(button("Controls", opts.onControls, "px-btn secondary small"));
+    more.append(button("Credits", opts.onCredits, "px-btn secondary small"));
+    const moreBtn = button("More ▾", () => {
+      const open = more.classList.toggle("hidden");
+      moreBtn.textContent = open ? "More ▾" : "More ▴";
+    }, "px-btn ghost small");
+    buttons.append(moreBtn, more);
     block.append(logo, tagline, buttons);
     if (opts.notice) block.append(el("div", "toast px-panel warn", opts.notice));
     const wrap = el("div");
@@ -545,23 +625,24 @@ export class UI {
     onMap?: () => void;
     onBase?: () => void;
     onScience?: () => void;
+    onJournal?: () => void;
   }): void {
     const card = el("div", "menu-card px-panel");
-    card.append(el("h2", "", opts.tutorial ? "Paused · Mission 00" : "Paused"));
+    card.append(el("h2", "", opts.tutorial ? "Paused · Tutorial" : "Paused"));
     card.append(button("▶ Resume", opts.onResume));
-    if (opts.onMap) card.append(button("World map", opts.onMap, "px-btn secondary"));
+    if (opts.onMap) card.append(button("Map", opts.onMap, "px-btn secondary"));
+    if (opts.onJournal) card.append(button("Journal", opts.onJournal, "px-btn secondary"));
     if (opts.onBase) card.append(button("Base status", opts.onBase, "px-btn secondary"));
-    if (opts.onScience) card.append(button("Science journal", opts.onScience, "px-btn secondary"));
-    card.append(button("Controls", opts.onControls, "px-btn secondary"), button("Settings", opts.onSettings, "px-btn secondary"));
+    card.append(button("Settings", opts.onSettings, "px-btn secondary"), button("Controls", opts.onControls, "px-btn secondary"));
     if (opts.tutorial === "first") {
       card.append(button("Restart tutorial", opts.onRestartTutorial!, "px-btn secondary"), button("Skip tutorial", opts.onSkipTutorial!, "px-btn secondary"));
     } else if (opts.tutorial === "replay") {
       card.append(button("Restart tutorial", opts.onRestartTutorial!, "px-btn secondary"), button("End tutorial replay", opts.onEndReplay!, "px-btn secondary"));
     } else {
       card.append(button("Return to last checkpoint", opts.onCheckpoint, "px-btn secondary"));
-      if (opts.onReplayTutorial) card.append(button("Replay tutorial (Mission 00)", opts.onReplayTutorial, "px-btn secondary"));
+      if (opts.onReplayTutorial) card.append(button("Replay tutorial", opts.onReplayTutorial, "px-btn secondary"));
     }
-    card.append(button("Restart adventure", opts.onRestart, "px-btn secondary"), button("Save & quit to title", opts.onMenu, "px-btn secondary"));
+    card.append(button("Save & quit", opts.onMenu, "px-btn secondary"), button("Restart adventure", opts.onRestart, "px-btn secondary danger-text"));
     this.openScreen(card);
   }
 
@@ -587,11 +668,36 @@ export class UI {
     this.openScreen(card);
   }
 
+  private settingsTab: "play" | "display" | "audio" | "controls" = "play";
+
+  /**
+   * Phase 5: four small categories instead of one long list, friendly labels, recommended
+   * defaults marked, and Reset to defaults (asks once more before it resets).
+   */
   showSettings(settings: Settings, onChange: (s: Settings) => void, onBack: () => void): void {
     let s = { ...settings, bindings: { ...settings.bindings } };
-    const card = el("div", "menu-card px-panel");
+    const card = el("div", "menu-card px-panel settings-card");
     card.style.maxWidth = "min(94%, 560px)";
     card.append(el("h2", "", "Settings"));
+    const tabs = el("div", "settings-tabs");
+    tabs.setAttribute("role", "tablist");
+    const TABS: Array<[typeof this.settingsTab, string]> = [
+      ["play", "Gameplay help"],
+      ["display", "Display"],
+      ["audio", "Audio"],
+      ["controls", "Controls"],
+    ];
+    const rerender = () => this.showSettings(s, onChange, onBack);
+    for (const [id, label] of TABS) {
+      const b = button(label, () => {
+        this.settingsTab = id;
+        rerender();
+      }, `tab-btn${this.settingsTab === id ? " on" : ""}`);
+      b.setAttribute("role", "tab");
+      b.setAttribute("aria-selected", String(this.settingsTab === id));
+      tabs.append(b);
+    }
+    card.append(tabs);
     const grid = el("div", "settings-grid");
     const commit = (next: Settings) => {
       s = next;
@@ -628,7 +734,7 @@ export class UI {
       wrap.append(input, el("span", "", help ?? ""));
       grid.append(lab, wrap);
     };
-    const select = <K extends "textScale" | "touchControls" | "textSpeed" | "survival">(label: string, key: K, options: Array<[Settings[K], string]>) => {
+    const select = <K extends "textScale" | "touchControls" | "textSpeed" | "survival" | "guidance" | "hud">(label: string, key: K, options: Array<[Settings[K], string]>) => {
       const id = `set-${key}`;
       const lab = el("label", "", label);
       lab.htmlFor = id;
@@ -644,84 +750,100 @@ export class UI {
         const raw = sel.value;
         const v = (key === "textScale" ? Number(raw) : raw) as Settings[K];
         commit({ ...s, [key]: v });
+        if (key === "hud" && this.currentObjective) this.setObjective(this.currentObjective);
       });
       grid.append(lab, sel);
     };
-
-    grid.append(el("h3", "", "Audio"));
-    slider("Master", "master");
-    slider("Music", "music");
-    slider("Ambience", "ambience");
-    slider("Sound effects", "sfx");
-    grid.append(el("h3", "", "Display & accessibility"));
-    select("Text size", "textScale", [
-      [1, "Standard"],
-      [1.25, "Large"],
-      [1.5, "Extra large"],
-    ]);
-    select("Transmission text", "textSpeed", [
-      ["normal", "Normal"],
-      ["slow", "Slow"],
-      ["instant", "Instant"],
-    ]);
-    toggle("Reduced motion", "reducedMotion", "No camera pans or shakes");
-    toggle("Hints", "hints", "Offer help when you seem stuck (the ? button always works)");
-    toggle("Sound captions", "captions", "Show short text for important sounds");
-    toggle("Easy jumps", "assistJumps", "Higher jumps, glide while holding Jump");
-    toggle("Brighter caves", "brightCaves", "Dark areas are easier to see");
-    select("Survival assistance", "survival", [
-      ["relaxed", "Relaxed: suit energy never limits you"],
-      ["adventure", "Adventure (recommended)"],
-      ["expedition", "Expedition: plan your energy"],
-    ]);
-    select("Touch controls", "touchControls", [
-      ["auto", "Automatic"],
-      ["on", "Always on"],
-      ["off", "Off"],
-    ]);
-    grid.append(el("h3", "", "Controls (click, then press a key)"));
+    if (this.settingsTab === "play") {
+      select("Guidance", "guidance", [
+        ["guided", "Guided: show the way (recommended)"],
+        ["explorer", "Explorer: a light hint"],
+        ["minimal", "Minimal: only when I ask (?)"],
+      ]);
+      select("Suit energy", "survival", [
+        ["relaxed", "Relaxed: nothing to watch (recommended)"],
+        ["adventure", "Adventure: thrusters use energy"],
+        ["expedition", "Expedition: plan your energy"],
+      ]);
+      select("Screen info", "hud", [
+        ["simple", "Simple (recommended)"],
+        ["detailed", "Detailed: show everything"],
+      ]);
+      toggle("Hints", "hints", "Help when stuck");
+      toggle("Easy jumps", "assistJumps", "Higher jumps, glide");
+    } else if (this.settingsTab === "display") {
+      select("Text size", "textScale", [
+        [1, "Standard"],
+        [1.25, "Large"],
+        [1.5, "Extra large"],
+      ]);
+      select("Radio text", "textSpeed", [
+        ["normal", "Normal"],
+        ["slow", "Slow"],
+        ["instant", "Instant"],
+      ]);
+      toggle("Reduced motion", "reducedMotion", "No shakes or pans");
+      toggle("Sound captions", "captions", "Text for sounds");
+      toggle("Brighter caves", "brightCaves", "Easier to see");
+      select("Touch buttons", "touchControls", [
+        ["auto", "Automatic"],
+        ["on", "Always on"],
+        ["off", "Off"],
+      ]);
+    } else if (this.settingsTab === "audio") {
+      slider("Volume", "master");
+      slider("Music", "music");
+      slider("Ambience", "ambience");
+      slider("Effects", "sfx");
+    }
     const keyButtons = new Map<Action, HTMLButtonElement>();
-    for (const action of REMAPPABLE) {
-      const lab = el("span", "", ACTION_LABELS[action]);
-      const kb = el("button", "key-btn", keyLabel(s.bindings[action]));
-      kb.type = "button";
-      kb.setAttribute("aria-label", `${ACTION_LABELS[action]}: ${keyLabel(s.bindings[action])}. Press to change.`);
-      kb.addEventListener("click", () => {
-        kb.classList.add("listening");
-        kb.textContent = "Press a key…";
-        this.input.captureNextKey((code) => {
-          kb.classList.remove("listening");
-          if (code && code !== "Escape") {
-            const next = { ...s, bindings: { ...s.bindings } };
-            const other = REMAPPABLE.find((a) => a !== action && next.bindings[a] === code);
-            if (other) next.bindings[other] = next.bindings[action];
-            next.bindings[action] = code;
-            commit(next);
-          }
-          for (const [a, b] of keyButtons) b.textContent = keyLabel(s.bindings[a]);
-          kb.focus();
+    if (this.settingsTab === "controls") {
+      grid.append(el("p", "fine span", "Click a key, then press the new key."));
+      for (const action of REMAPPABLE) {
+        const lab = el("span", "", ACTION_LABELS[action]);
+        const kb = el("button", "key-btn", keyLabel(s.bindings[action]));
+        kb.type = "button";
+        kb.setAttribute("aria-label", `${ACTION_LABELS[action]}: ${keyLabel(s.bindings[action])}. Press to change.`);
+        kb.addEventListener("click", () => {
+          kb.classList.add("listening");
+          kb.textContent = "Press a key…";
+          this.input.captureNextKey((code) => {
+            kb.classList.remove("listening");
+            if (code && code !== "Escape") {
+              const next = { ...s, bindings: { ...s.bindings } };
+              const other = REMAPPABLE.find((a) => a !== action && next.bindings[a] === code);
+              if (other) next.bindings[other] = next.bindings[action];
+              next.bindings[action] = code;
+              commit(next);
+            }
+            for (const [a, b] of keyButtons) b.textContent = keyLabel(s.bindings[a]);
+            kb.focus();
+          });
         });
-      });
-      keyButtons.set(action, kb);
-      grid.append(lab, kb);
+        keyButtons.set(action, kb);
+        grid.append(lab, kb);
+      }
     }
     card.append(grid);
-    card.append(el("p", "", "Arrow keys always move, ↑/W also jump, Enter also interacts, Tab also opens the map. Gamepads: A jump, X interact, Y sniff, LB bark, B sprint, Back map, Start pause."));
     const row = el("div", "row-buttons");
+    let armed = false;
+    const reset = button("Reset to defaults", () => {
+      if (!armed) {
+        armed = true;
+        reset.textContent = "Tap again to reset";
+        reset.classList.add("danger");
+        return;
+      }
+      const d = defaultSettings(s.reducedMotion);
+      commit(this.settingsTab === "controls" ? { ...s, bindings: { ...DEFAULT_BINDINGS } } : { ...d, bindings: s.bindings });
+      rerender();
+    }, "px-btn secondary");
     row.append(
       button("Back", () => {
         this.input.cancelCapture();
         onBack();
       }),
-      button(
-        "Reset controls",
-        () => {
-          const next = { ...s, bindings: { ...DEFAULT_BINDINGS } };
-          commit(next);
-          for (const [a, b] of keyButtons) b.textContent = keyLabel(next.bindings[a]);
-        },
-        "px-btn secondary",
-      ),
+      reset,
     );
     card.append(row);
     this.openScreen(card);

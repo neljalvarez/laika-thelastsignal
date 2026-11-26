@@ -392,7 +392,31 @@ function sign(text: string, symbol: "shield" | "arrow" | "none", bg: string): Pr
   };
 }
 
+// ---- Phase 5: habitat decorations (rewards that appear by themselves) ----
+function decoShelf(p: Painter): void {
+  p.rect(0, 10, 26, 3, C.out).rect(1, 11, 24, 1, C.steelL);
+  p.rect(3, 5, 6, 5, C.out).rect(4, 6, 4, 3, "#b34a3a");
+  p.rect(11, 4, 5, 6, C.out).rect(12, 5, 3, 4, "#3a3a46");
+  p.rect(18, 6, 6, 4, C.out).rect(19, 7, 4, 2, "#e8e0d0");
+}
+function decoPatch(p: Painter): void {
+  box(p, 0, 0, 16, 16, C.navy);
+  p.rect(3, 3, 10, 10, "#e2483d").rect(4, 4, 8, 8, C.cream).rect(6, 5, 4, 2, "#e2483d").rect(5, 7, 6, 3, C.orange).px(7, 11, C.out).px(8, 11, C.out);
+}
+function decoRover(p: Painter): void {
+  p.rect(2, 4, 14, 5, C.out).rect(3, 5, 12, 3, C.steelL).rect(9, 1, 2, 4, C.out).rect(10, 0, 3, 2, C.yellow);
+  for (const x of [2, 7, 12]) p.rect(x, 9, 4, 4, C.out).rect(x + 1, 10, 2, 2, C.steel);
+}
+function decoPhoto(p: Painter): void {
+  box(p, 0, 0, 14, 12, "#c99a5a");
+  p.rect(2, 2, 10, 8, "#7ab6e0").rect(2, 7, 10, 3, "#c25d35").rect(5, 4, 3, 3, C.cream).px(6, 5, C.out);
+}
+
 export const BASE_PROPS: Record<string, PropDef> = {
+  deco_shelf: { w: 26, h: 13, draw: decoShelf },
+  deco_patch: { w: 16, h: 16, draw: decoPatch },
+  deco_rover: { w: 18, h: 13, draw: decoRover },
+  deco_photo: { w: 14, h: 12, draw: decoPhoto },
   recharge_dead: { w: 18, h: 27, draw: recharge("dead") },
   recharge_on: { w: 18, h: 27, draw: recharge("on") },
   recharge_charging: { w: 18, h: 27, draw: recharge("charging") },

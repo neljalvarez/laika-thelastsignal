@@ -119,6 +119,14 @@ export class Player {
     return this.action !== null || this.scripted !== null;
   }
 
+  /** Phase 5: a generated sheet for Laika's equipment and cosmetics (same frame and animation names). */
+  setLookTexture(key: string, boots: boolean): void {
+    this.boots = boots;
+    if (this.tex === key) return;
+    this.tex = key;
+    this.anim = "";
+  }
+
   setBoots(on: boolean): void {
     this.boots = on;
     this.tex = on ? "laika_boots" : "laika";

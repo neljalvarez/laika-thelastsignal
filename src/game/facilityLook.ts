@@ -113,3 +113,13 @@ export function surfaceLook(s: GameState, p: PowerStatus): { domeStage: number; 
 export function powerFor(s: GameState, mode: SurvivalMode): PowerStatus {
   return computePower(s, mode);
 }
+
+/** Phase 5: souvenirs in Laika's room, each earned by something she did. */
+export function habitatDecor(s: GameState): { shelf: boolean; patch: boolean; photo: boolean; rover: boolean } {
+  return {
+    shelf: (s.inventory.sample ?? 0) >= 3,
+    patch: s.flags.m4Complete,
+    photo: (s.inventory.treat ?? 0) >= 1,
+    rover: (s.inventory.roverPart ?? 0) >= 2,
+  };
+}

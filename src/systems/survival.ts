@@ -12,7 +12,19 @@
  *   as before. In Relaxed mode nothing costs energy at all.
  */
 import { SUIT, type SurvivalMode } from "../data/engineering";
-import type { GameState } from "./state";
+import { GEAR } from "../data/equipment";
+import { gearReady, type GameState } from "./state";
+
+/** Phase 5: the Reserve Battery raises the suit's capacity. */
+export function suitMaxOf(s: GameState): number {
+  return gearReady(s, "reserveBattery") ? GEAR.reserveSuitMax : SUIT.max;
+}
+
+/** Phase 5: what a use costs THIS Laika (the Thruster Upgrade halves thruster and boost costs). */
+export function costFor(s: GameState, use: SuitUse, mode: SurvivalMode): number {
+  const base = suitCost(use, mode);
+  return use !== "scan" && gearReady(s, "efficientBoots") ? base * GEAR.efficientCostFactor : base;
+}
 
 export type SuitUse = "thrust" | "boost" | "scan";
 
@@ -26,13 +38,13 @@ export function suitCost(use: SuitUse, mode: SurvivalMode): number {
 
 export function canUse(s: GameState, use: SuitUse, mode: SurvivalMode): boolean {
   if (!suitActive(s)) return use !== "boost"; // the boost is a Phase 4 suit feature
-  return s.eng.suit >= suitCost(use, mode);
+  return s.eng.suit >= costFor(s, use, mode);
 }
 
 /** Spends energy for a use if possible. Returns false (and changes nothing) if there is not enough. */
 export function spend(s: GameState, use: SuitUse, mode: SurvivalMode): boolean {
   if (!canUse(s, use, mode)) return false;
-  if (suitActive(s)) s.eng.suit = clampSuit(s.eng.suit - suitCost(use, mode));
+  if (suitActive(s)) s.eng.suit = clampSuit(s.eng.suit - costFor(s, use, mode), suitMaxOf(s));
   return true;
 }
 
@@ -58,12 +70,12 @@ export function airJumpUse(n: number): SuitUse {
 export function scanRadiusFactor(s: GameState, mode: SurvivalMode): number {
   if (!suitActive(s)) return 1;
   let f = mode === "expedition" ? 0.85 : 1;
-  if (s.eng.suit < suitCost("scan", mode)) f *= SUIT.scanFallbackRadius;
+  if (s.eng.suit < costFor(s, "scan", mode)) f *= SUIT.scanFallbackRadius;
   return f;
 }
 
 export function recharge(s: GameState): void {
-  s.eng.suit = SUIT.max;
+  s.eng.suit = suitMaxOf(s);
 }
 
 /** Runtime-only reserve-cell timer (not saved). */
@@ -76,10 +88,11 @@ export class SuitReserve {
   tick(s: GameState, mode: SurvivalMode, dtMs: number): boolean {
     if (!suitActive(s)) return false;
     this.sinceUseMs += dtMs;
-    const cap = SUIT.reserveLevel[mode];
+    const max = suitMaxOf(s);
+    const cap = mode === "relaxed" ? max : SUIT.reserveLevel[mode] + (gearReady(s, "reserveBattery") ? GEAR.reserveFloorBonus : 0);
     if (mode === "relaxed") {
-      if (s.eng.suit < SUIT.max) {
-        s.eng.suit = SUIT.max;
+      if (s.eng.suit < max) {
+        s.eng.suit = max;
         return true;
       }
       return false;
@@ -90,12 +103,12 @@ export class SuitReserve {
   }
 }
 
-export function clampSuit(v: number): number {
-  return Number.isFinite(v) ? Math.max(0, Math.min(SUIT.max, v)) : SUIT.max;
+export function clampSuit(v: number, max: number = SUIT.max): number {
+  return Number.isFinite(v) ? Math.max(0, Math.min(max, v)) : max;
 }
 
 export const SURVIVAL_LABELS: Record<SurvivalMode, { name: string; help: string }> = {
-  relaxed: { name: "Relaxed", help: "Suit energy never limits anything. All puzzles and science stay." },
-  adventure: { name: "Adventure", help: "Recommended. Forgiving suit energy, handy recharge stations." },
-  expedition: { name: "Expedition", help: "Plan your energy: gear costs more, the battery holds less. Always recoverable." },
+  relaxed: { name: "Relaxed", help: "No suit energy to watch." },
+  adventure: { name: "Adventure", help: "Thrusters use some energy." },
+  expedition: { name: "Expedition", help: "Plan your energy." },
 };

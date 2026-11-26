@@ -16,7 +16,7 @@ import type { Effect, Interaction, InteractionContext } from "./effects";
 import { allFacilitiesRestored, allocationFits, capacity, hazeActive, plantStage, STAGE_NAMES } from "./engineering";
 import { count } from "./inventory";
 import { isPowered, type GameState } from "./state";
-import { recharge, suitActive } from "./survival";
+import { recharge } from "./survival";
 
 export interface Phase4Context extends InteractionContext {
   mode?: SurvivalMode;
@@ -84,32 +84,34 @@ export function phase4Interaction(o: WorldObject, s: GameState, ctx: Phase4Conte
   const mode = modeOf(ctx);
   switch (o.kind) {
     case "beacon":
-      if (f.ridgeCableOpen && !m4) return { verb: "Answer the station call", detail: "Mission 04" };
+      if (f.ridgeCableOpen && !m4) return { verb: "Answer the call" };
       return undefined;
     case "habitat":
       if (!m4) return undefined;
-      return { verb: "Enter the habitat", detail: "Stairs to the lower level" };
+      return { verb: "Go down" };
     case "battery":
       if (!m4) return undefined;
-      if (!f.batteryRestored) {
-        return count(s, "regulator") > 0 ? { verb: "Install the regulator" } : { verb: "Inspect battery station", detail: "Regulator burnt out" };
-      }
-      return { verb: "Check battery", detail: `${Math.round((s.eng.battery / capacity(mode)) * 100)}% stored` };
+      if (!f.batteryRestored) return count(s, "regulator") > 0 ? { verb: "Fix battery" } : { verb: "Check battery", detail: "Broken" };
+      return { verb: "Battery", detail: `${Math.round((s.eng.battery / capacity(mode)) * 100)}%` };
     case "solarPanel":
-      if (s.eng.dusty.includes(o.id)) return { verb: "Sweep the dust", detail: "Tail sweep!" };
+      if (s.eng.dusty.includes(o.id)) return { verb: "Clean panel" };
       return undefined;
     case "sampler":
-      if (m4 && s.collected.includes("sampler") && !took(s, "drill_coupling") && !f.waterRestored) return { verb: "Take the spare melt-line coupling" };
+      if (m4 && s.collected.includes("sampler") && !took(s, "drill_coupling") && !f.waterRestored) return { verb: "Take pipe connector" };
       return undefined;
     case "stairs":
-      return { verb: "Climb the stairs", detail: "Up to the habitat dome" };
+      return { verb: "Go up" };
     case "recharge":
-      if (o.broken && !f.canyonPostFixed) {
-        return count(s, "powerCell") > 0 ? { verb: "Install the power cell" } : { verb: "Inspect recharge post", detail: "Dead: no power cell" };
-      }
-      return { verb: "Recharge suit", detail: suitActive(s) ? `Suit ${Math.round(s.eng.suit)}%` : "Suit full" };
+      if (o.broken && !f.canyonPostFixed) return count(s, "powerCell") > 0 ? { verb: "Fix post" } : { verb: "Check post", detail: "No power cell" };
+      return { verb: "Recharge" };
     case "facility":
       return facilityInteraction(o, s);
+    // ---- Phase 5 ----
+    case "workstation":
+      return isPowered(s) ? { verb: "Workbench" } : undefined;
+    case "receiver":
+      if (count(s, "navBeacon") > 0 && !f.m5Complete) return { verb: "Link beacon" };
+      return undefined;
     default:
       return undefined;
   }
@@ -121,65 +123,57 @@ function facilityInteraction(o: WorldObject, s: GameState): Interaction | null {
   const bus = f.batteryRestored;
   switch (o.part) {
     case "cargoLocker":
-      if (!m4) return { verb: "Check cargo locker" };
-      return took(s, "cargo_locker") ? { verb: "Check cargo locker", detail: "Empty" } : { verb: "Open cargo locker" };
+      if (!m4) return { verb: "Look inside" };
+      return took(s, "cargo_locker") ? { verb: "Look inside", detail: "Empty" } : { verb: "Open locker" };
     case "baseTerminal":
-      return m4 ? { verb: "Check base status" } : { verb: "Read base terminal", detail: "Waiting for a base override" };
+      return m4 ? { verb: "Base status" } : { verb: "Read screen" };
     case "probeOut":
     case "probeIn": {
       const read = o.part === "probeOut" ? f.probeOutRead : f.probeInRead;
-      if (!f.shelterInspected) return { verb: "Inspect probe", detail: "Wake the shelter monitor first" };
-      return { verb: "Bark", detail: read ? "Reading taken" : "Take a reading" };
+      if (!f.shelterInspected) return { verb: "Check probe", detail: "Asleep" };
+      return { verb: "Bark", detail: read ? "Done" : undefined };
     }
     case "shelterTerminal":
-      if (!bus) return { verb: "Inspect shelter monitor", detail: "No power: restore the battery" };
-      if (!f.shelterInspected) return { verb: "Wake the shelter monitor" };
-      if (!f.shelterRestored) {
-        return f.probeOutRead && f.probeInRead ? { verb: "Log the readings" } : { verb: "Check shelter monitor", detail: "Bark at both probes" };
-      }
-      return { verb: "Check shelter monitor" };
+      if (!bus) return { verb: "Check monitor", detail: "No power" };
+      if (!f.shelterInspected) return { verb: "Wake monitor" };
+      return { verb: "Check monitor" };
     case "distConsole":
-      if (!bus) return { verb: "Inspect power console", detail: "No battery: nothing to share out yet" };
-      return { verb: "Open the power console", detail: hazeActive(s) ? "Balance the power!" : undefined };
+      if (!bus) return { verb: "Check console", detail: "No power" };
+      return { verb: "Share power" };
     case "bed":
-      return m4 ? { verb: "Rest", detail: "Recharges suit energy" } : null;
+      return m4 ? { verb: "Rest" } : null;
     case "storage":
       if (!m4) return null;
-      return took(s, "habitat_storage") ? { verb: "Check storage", detail: "Spare blankets" } : { verb: "Open storage locker" };
+      return took(s, "habitat_storage") ? { verb: "Look inside", detail: "Empty" } : { verb: "Open locker" };
     case "recycler":
-      if (!f.recyclerInspected) return { verb: "Inspect recycler" };
-      if (!f.recyclerFixed) return count(s, "recyclerPart") > 0 ? { verb: "Install the pump cartridge" } : { verb: "Inspect recycler", detail: "Pump cartridge missing" };
-      if (!f.recyclerOn) return f.recyclerPowered ? { verb: "Start the recycler" } : { verb: "Start the recycler", detail: "Needs power: use the power box" };
-      return { verb: "Check recycler", detail: "Recycling" };
+      if (f.recyclerOn) return { verb: "Life support", detail: "Working" };
+      if (count(s, "recyclerPart") > 0 || f.recyclerFixed) return { verb: "Fix life support", detail: bus ? undefined : "No power" };
+      return { verb: "Check life support" };
     case "recyclerPower":
-      if (!bus) return { verb: "Inspect power box", detail: "No power on the bus: restore the battery" };
-      return f.recyclerPowered ? { verb: "Check power box", detail: "Connected" } : { verb: "Connect power" };
     case "growPower":
-      if (!bus) return { verb: "Inspect grow-room power", detail: "No power on the bus: restore the battery" };
-      return f.growPowered ? { verb: "Check grow-room power", detail: "Connected" } : { verb: "Connect grow-room power" };
+      return { verb: "Power box", detail: bus ? "On" : "No power" };
     case "growValve":
-      if (!f.waterRestored) return { verb: "Inspect water valve", detail: "No water in the pipes yet" };
-      return f.growValveOpen ? { verb: "Check valve", detail: "Water flowing" } : { verb: "Open the water valve" };
+      return { verb: "Water valve", detail: f.growValveOpen ? "Open" : "Dry" };
     case "planter": {
       if (!f.seedsPlanted) {
-        if (!f.growValveOpen) return { verb: "Inspect planter", detail: "Dry: needs water" };
-        if (count(s, "seeds") <= 0) return { verb: "Inspect planter", detail: "Needs seeds" };
-        return { verb: "Plant the seeds" };
+        if (!f.waterRestored && !f.growValveOpen) return { verb: "Planter", detail: "Needs water" };
+        if (count(s, "seeds") <= 0) return { verb: "Planter", detail: "Needs seeds" };
+        return { verb: "Plant seeds" };
       }
-      if (!f.growLightsOn) return f.growPowered ? { verb: "Switch on the grow lights" } : { verb: "Switch on the grow lights", detail: "Needs grow-room power" };
+      if (!f.growLightsOn) return { verb: "Lights on" };
       const st = plantStage(s);
-      if (st >= 4 && !f.cropHarvested) return { verb: "Harvest the lettuce" };
-      return { verb: "Check plants", detail: STAGE_NAMES[st] };
+      if (st >= 4 && !f.cropHarvested) return { verb: "Harvest" };
+      return { verb: "Plants", detail: STAGE_NAMES[st] };
     }
     case "waterProcessor":
-      if (f.waterRestored) return { verb: "Check water processor", detail: "Melting ice" };
-      if (count(s, "waterCoupling") > 0) return bus ? { verb: "Install the melt-line coupling" } : { verb: "Install the melt-line coupling", detail: "Needs power: restore the battery" };
-      return { verb: "Inspect water processor", detail: "Melt-line coupling missing" };
+      if (f.waterRestored) return { verb: "Water", detail: "Working" };
+      if (count(s, "waterCoupling") > 0) return { verb: "Fix water pipe", detail: bus ? undefined : "No power" };
+      return { verb: "Check water", detail: "Pipe missing" };
     case "seismometer":
-      if (!f.canyonPostFixed) return { verb: "Inspect seismometer", detail: "No power: the recharge post is dead" };
-      return f.seismometerRead ? { verb: "Check seismometer" } : { verb: "Read the seismometer" };
+      if (!f.canyonPostFixed) return { verb: "Check sensor", detail: "No power" };
+      return { verb: "Read sensor" };
     case "deepProbe":
-      return f.fissureSurveyed ? { verb: "Check survey probe" } : { verb: "Download the deep survey" };
+      return { verb: f.fissureSurveyed ? "Check probe" : "Read probe" };
     case "telescopeNorth":
       return { verb: "Look north" };
     default:
@@ -202,10 +196,7 @@ export function performPhase4(o: WorldObject, s: GameState, ctx: Phase4Context):
 
   switch (o.kind) {
     case "beacon":
-      f.m4Briefed = true;
-      recharge(s);
-      fx.push({ type: "anim", name: "interact" }, { type: "transmission", id: "m4Brief" }, { type: "world", event: "m4Brief" });
-      save();
+      fx.push({ type: "anim", name: "interact" }, ...answerStationCall(s));
       return fx;
     case "habitat":
       fx.push({ type: "anim", name: "interact" }, { type: "stairs", to: [62, 31] });
@@ -217,15 +208,18 @@ export function performPhase4(o: WorldObject, s: GameState, ctx: Phase4Context):
       fx.push({ type: "anim", name: "repair" });
       if (!f.batteryRestored && use(s, "regulator")) {
         f.batteryRestored = true;
+        // Phase 5: the battery's cables reach every room by themselves (no separate power boxes to press).
+        f.recyclerPowered = true;
+        f.growPowered = true;
         s.eng.battery = Math.min(ENGINEERING.batteryStart, capacity(mode));
-        fx.push({ type: "world", event: "batteryRestored", objectId: o.id }, { type: "toast", text: "Battery station online! Spare solar power now charges it.", tone: "good" });
+        fx.push({ type: "world", event: "batteryRestored", objectId: o.id }, { type: "toast", text: "Battery fixed!", tone: "good" });
         tipOnce(s, "storage", fx);
         save();
       } else if (!f.batteryRestored) {
-        fx.push({ type: "read", title: "BATTERY STATION", lines: ["Regulator: BURNT OUT. The battery cannot store power.", "A spare regulator should be in the ship's cargo locker."] });
+        fx.push({ type: "toast", text: "Needs a battery part" });
         s.seen.includes("battery_inspected") || s.seen.push("battery_inspected");
       } else {
-        fx.push({ type: "toast", text: `Battery ${Math.round((s.eng.battery / capacity(mode)) * 100)}%. Extra sunlight tops it up.` });
+        fx.push({ type: "toast", text: `Battery ${Math.round((s.eng.battery / capacity(mode)) * 100)}%` });
       }
       return fx;
     case "solarPanel":
@@ -234,7 +228,7 @@ export function performPhase4(o: WorldObject, s: GameState, ctx: Phase4Context):
       if (s.eng.dusty.length === 0 && f.lightsOutBalanced && !f.lightsOutDone) {
         f.lightsOutDone = true;
         s.eng.alloc = { water: true, greenhouse: true, research: true };
-        fx.push({ type: "world", event: "lightsOutDone" }, { type: "toast", text: "Full power! Everything is back on.", tone: "good" });
+        fx.push({ type: "world", event: "lightsOutDone" }, { type: "toast", text: "Full power!", tone: "good" });
         save();
       }
       return fx;
@@ -242,7 +236,6 @@ export function performPhase4(o: WorldObject, s: GameState, ctx: Phase4Context):
       fx.push({ type: "anim", name: "interact" });
       s.seen.push("took:drill_coupling");
       give(s, "waterCoupling", o.id, fx);
-      fx.push({ type: "toast", text: "Spare melt-line coupling! The outpost's water processor needs it.", tone: "good" });
       save();
       return fx;
     case "recharge":
@@ -250,10 +243,10 @@ export function performPhase4(o: WorldObject, s: GameState, ctx: Phase4Context):
         fx.push({ type: "anim", name: "repair" });
         if (use(s, "powerCell")) {
           f.canyonPostFixed = true;
-          fx.push({ type: "world", event: "postFixed", objectId: o.id }, { type: "toast", text: "The old post hums awake. The seismometer next to it lights up!", tone: "good" });
+          fx.push({ type: "world", event: "postFixed", objectId: o.id }, { type: "toast", text: "Post fixed!", tone: "good" });
           save();
         } else {
-          fx.push({ type: "toast", text: "The post's power cell is gone. Maybe the scanner can find a spare nearby.", tone: "info" });
+          fx.push({ type: "toast", text: "Needs a power cell" });
         }
         return fx;
       }
@@ -263,9 +256,44 @@ export function performPhase4(o: WorldObject, s: GameState, ctx: Phase4Context):
       return fx;
     case "facility":
       return performFacility(o, s, fx, save);
+    case "workstation":
+      fx.push({ type: "anim", name: "interact" });
+      // Chapter 5: the first visit after the call reveals the Signal Booster blueprint.
+      if (f.m5Briefed && !f.m5Blueprint) {
+        f.m5Blueprint = true;
+        if (!s.gear.blueprints.includes("booster")) s.gear.blueprints.push("booster");
+        fx.push({ type: "world", event: "blueprint", objectId: o.id }, { type: "toast", text: "New blueprint!", tone: "good" });
+        save();
+      }
+      fx.push({ type: "ui", panel: "workbench" });
+      return fx;
+    case "receiver":
+      fx.push({ type: "anim", name: "interact" });
+      if (use(s, "navBeacon")) {
+        f.m5Complete = true;
+        for (const id of ["booster", "efficientBoots", "surveyLamp", "reserveBattery"] as const) if (!s.gear.blueprints.includes(id)) s.gear.blueprints.push(id);
+        fx.push({ type: "transmission", id: "m5Final" }, { type: "world", event: "m5Complete", objectId: o.id }, { type: "toast", text: "New blueprints at the workbench" });
+        save();
+      }
+      return fx;
     default:
       return fx;
   }
+}
+
+/** Chapter 5 starts by itself after Chapter 4 (a short call, no console trip). */
+export function startChapter5(s: GameState): Effect[] {
+  if (!s.flags.m4Complete || s.flags.m5Briefed) return [];
+  s.flags.m5Briefed = true;
+  return [{ type: "transmission", id: "m5Brief" }, { type: "world", event: "m5Brief" }, { type: "save" }];
+}
+
+/** The Ares Station's call that starts Chapter 4 (pressed at the console, or sent by the scene). */
+export function answerStationCall(s: GameState): Effect[] {
+  if (s.flags.m4Briefed || !s.flags.ridgeCableOpen) return [];
+  s.flags.m4Briefed = true;
+  recharge(s);
+  return [{ type: "transmission", id: "m4Brief" }, { type: "world", event: "m4Brief" }, { type: "save" }];
 }
 
 function performFacility(o: WorldObject, s: GameState, fx: Effect[], save: () => void): Effect[] {
@@ -274,16 +302,11 @@ function performFacility(o: WorldObject, s: GameState, fx: Effect[], save: () =>
   switch (o.part) {
     case "cargoLocker":
       anim("interact");
-      if (!f.m4Briefed) {
-        fx.push({ type: "toast", text: "Sealed spare parts for the outpost. Nothing needed right now." });
-      } else if (!took(s, "cargo_locker")) {
+      if (f.m4Briefed && !took(s, "cargo_locker")) {
         s.seen.push("took:cargo_locker");
         give(s, "regulator", o.id, fx);
-        fx.push({ type: "toast", text: "A spare battery regulator! Back to the outpost's battery station.", tone: "good" });
         save();
-      } else {
-        fx.push({ type: "toast", text: "Empty now." });
-      }
+      } else fx.push({ type: "toast", text: "Empty" });
       return fx;
     case "baseTerminal":
       anim("interact");
@@ -291,61 +314,47 @@ function performFacility(o: WorldObject, s: GameState, fx: Effect[], save: () =>
         f.baseSurveyed = true;
         save();
       }
-      fx.push(f.m4Briefed ? { type: "ui", panel: "baseStatus" } : { type: "toast", text: "BASE TERMINAL: waiting for an override from the Ares Station." });
+      fx.push(f.m4Briefed ? { type: "ui", panel: "baseStatus" } : { type: "toast", text: "Base offline" });
       return fx;
     case "probeOut":
     case "probeIn": {
       anim("bark");
       fx.push({ type: "sound", name: "woof" });
       if (!f.shelterInspected) {
-        fx.push({ type: "toast", text: "The probe is asleep. The shelter monitor wakes it up." });
+        fx.push({ type: "toast", text: "Wake the shelter monitor first" });
         return fx;
       }
       const outside = o.part === "probeOut";
       if (outside) f.probeOutRead = true;
       else f.probeInRead = true;
-      fx.push(
-        { type: "world", event: "probeRead", objectId: o.id },
-        {
-          type: "read",
-          title: outside ? "SURFACE PROBE (outside)" : "SHELTER PROBE (inside)",
-          lines: outside
-            ? ["Bark received through the suit radio. Reading taken.", "Radiation level: 7 (fictional game units)", "Open sky above: nothing blocks the radiation."]
-            : ["Bark received through the suit radio. Reading taken.", "Radiation level: 2 (fictional game units)", "Soil and thick walls above: much less gets through."],
-        },
-      );
-      if (f.probeOutRead && f.probeInRead && !f.shelterRestored) fx.push({ type: "toast", text: "Both readings taken. Log them at the shelter monitor.", tone: "good" });
+      fx.push({ type: "world", event: "probeRead", objectId: o.id });
+      // Phase 5: the second reading finishes the shelter by itself (no trip back to the monitor).
+      if (f.probeOutRead && f.probeInRead && !f.shelterRestored) {
+        f.shelterRestored = true;
+        fx.push({ type: "world", event: "shelterOn", objectId: "shelter_terminal" }, { type: "toast", text: "Shelter ready!", tone: "good" });
+      } else if (!f.shelterRestored) {
+        fx.push({ type: "toast", text: outside ? "Outside: high" : "Inside: low" });
+      }
       save();
       return fx;
     }
     case "shelterTerminal":
       anim("interact");
       if (!f.batteryRestored) {
-        fx.push({ type: "toast", text: "The monitor is dark. The battery station must be restored first.", tone: "warn" });
+        fx.push({ type: "toast", text: "No power yet", tone: "warn" });
       } else if (!f.shelterInspected) {
         f.shelterInspected = true;
-        fx.push(
-          { type: "world", event: "shelterAwake", objectId: o.id },
-          { type: "read", title: "SHELTER MONITOR", lines: ["Monitor online. Calibration needed:", "1. A reading OUTSIDE: the surface probe by the battery.", "2. A reading INSIDE: the probe in this shelter.", "The probes answer to your suit radio. Bark at them!"] },
-        );
+        fx.push({ type: "world", event: "shelterAwake", objectId: o.id }, { type: "toast", text: "Bark at both probes" });
         save();
-      } else if (!f.shelterRestored && f.probeOutRead && f.probeInRead) {
-        f.shelterRestored = true;
-        fx.push(
-          { type: "world", event: "shelterOn", objectId: o.id },
-          { type: "read", title: "SHELTER MONITOR // CALIBRATED", lines: ["Outside: 7. Inside: 2. (fictional game units)", "Soil and thick walls block much of the radiation.", "Shelter status: READY."] },
-          { type: "toast", text: "Radiation shelter restored!", tone: "good" },
-        );
-        save();
-      } else if (!f.shelterRestored) {
-        fx.push({ type: "toast", text: `Readings: outside ${f.probeOutRead ? "done" : "needed"}, inside ${f.probeInRead ? "done" : "needed"}. Bark at the probes.` });
+      } else if (f.shelterRestored) {
+        fx.push({ type: "read", title: "SHELTER MONITOR", lines: ["Outside 7 · Inside 2 (game units)", "Thick walls block radiation."] });
       } else {
-        fx.push({ type: "read", title: "SHELTER MONITOR", lines: ["Outside: 7. Inside: 2. (fictional game units)", "Shelter status: READY. Rest here whenever you like."] });
+        fx.push({ type: "toast", text: `Probes: ${f.probeInRead ? "✔" : "?"} inside · ${f.probeOutRead ? "✔" : "?"} outside` });
       }
       return fx;
     case "distConsole":
       anim("interact");
-      fx.push(f.batteryRestored ? { type: "ui", panel: "distribution" } : { type: "toast", text: "No battery yet, so there is no power to share out.", tone: "warn" });
+      fx.push(f.batteryRestored ? { type: "ui", panel: "distribution" } : { type: "toast", text: "No power yet", tone: "warn" });
       return fx;
     case "bed":
       recharge(s);
@@ -356,130 +365,118 @@ function performFacility(o: WorldObject, s: GameState, fx: Effect[], save: () =>
       if (!took(s, "habitat_storage")) {
         s.seen.push("took:habitat_storage");
         give(s, "seeds", o.id, fx);
-        fx.push({ type: "toast", text: "A sealed seed container! Lettuce for the greenhouse.", tone: "good" });
         save();
-      } else fx.push({ type: "toast", text: "Spare blankets and a squeaky toy. Very important." });
+      } else fx.push({ type: "toast", text: "Just blankets" });
       return fx;
     case "recycler":
-      if (!f.recyclerInspected) {
+      if (f.recyclerOn) {
+        anim("interact");
+        fx.push({ type: "toast", text: "Working" });
+      } else if (!f.recyclerFixed && !use(s, "recyclerPart")) {
         anim("interact");
         f.recyclerInspected = true;
-        fx.push({ type: "read", title: "LIFE SUPPORT RECYCLER", lines: ["Status: OFFLINE. Pump cartridge MISSING.", "Maintenance note: spare cartridges were buried in the maintenance bay when the dust storm hit.", "(Use your nose!)"] });
+        fx.push({ type: "toast", text: "Pump missing. Sniff nearby!", tone: "info" });
         save();
-      } else if (!f.recyclerFixed) {
-        anim("repair");
-        if (use(s, "recyclerPart")) {
-          f.recyclerFixed = true;
-          fx.push({ type: "world", event: "recyclerFixed", objectId: o.id }, { type: "toast", text: "Cartridge in! Now the recycler needs power.", tone: "good" });
-          save();
-        } else fx.push({ type: "toast", text: "The pump cartridge is missing.", tone: "warn" });
-      } else if (!f.recyclerOn) {
-        anim("interact");
-        if (!f.recyclerPowered) {
-          fx.push({ type: "toast", text: "No power. Connect the power box next to it.", tone: "warn" });
-        } else {
-          f.recyclerOn = true;
-          fx.push({ type: "world", event: "recyclerOn", objectId: o.id }, { type: "toast", text: "Life support online! The habitat lights warm up.", tone: "good" });
-          tipOnce(s, "recycler", fx);
-          save();
-        }
       } else {
-        anim("interact");
-        fx.push({ type: "toast", text: f.waterRestored ? "Recycling air and water. The water loop is closed." : "Recycling air. It will share water once the water system runs." });
+        // Phase 5: one press installs the pump and starts life support (when the battery runs).
+        anim("repair");
+        const wasFixed = f.recyclerFixed;
+        f.recyclerInspected = true;
+        f.recyclerFixed = true;
+        if (!wasFixed) fx.push({ type: "world", event: "recyclerFixed", objectId: o.id });
+        if (f.batteryRestored) {
+          f.recyclerPowered = true;
+          f.recyclerOn = true;
+          fx.push({ type: "world", event: "recyclerOn", objectId: o.id }, { type: "toast", text: "Life support on!", tone: "good" });
+          tipOnce(s, "recycler", fx);
+        } else fx.push({ type: "toast", text: "Pump in. Needs battery power", tone: "info" });
+        save();
       }
       return fx;
     case "recyclerPower":
-    case "growPower": {
-      anim("repair");
-      const key = o.part === "recyclerPower" ? "recyclerPowered" : "growPowered";
-      if (!f.batteryRestored) {
-        fx.push({ type: "toast", text: "No power on the bus. Restore the battery station first.", tone: "warn" });
-      } else if (!f[key]) {
-        f[key] = true;
-        fx.push({ type: "world", event: o.part === "recyclerPower" ? "recyclerPowered" : "growPowered", objectId: o.id }, { type: "toast", text: "Connected! Power flows down the cable.", tone: "good" });
-        save();
-      } else fx.push({ type: "toast", text: "Connected." });
+    case "growPower":
+      anim("interact");
+      fx.push({ type: "toast", text: f.batteryRestored ? "Power on" : "No power yet" });
       return fx;
-    }
     case "growValve":
       anim("interact");
-      if (f.waterRestored && !f.growValveOpen) {
-        f.growValveOpen = true;
-        fx.push({ type: "world", event: "valveOpen", objectId: o.id }, { type: "toast", text: "Water trickles into the planter.", tone: "good" });
-        save();
-      } else if (!f.waterRestored) fx.push({ type: "toast", text: "The pipes are dry. Fix the water processor first.", tone: "warn" });
-      else fx.push({ type: "toast", text: "Water flowing." });
+      fx.push({ type: "toast", text: f.growValveOpen ? "Water flowing" : "No water yet" });
       return fx;
     case "planter": {
       if (!f.seedsPlanted) {
         anim("interact");
-        if (f.growValveOpen && use(s, "seeds")) {
+        const wet = f.growValveOpen || f.waterRestored;
+        if (wet && use(s, "seeds")) {
+          f.growValveOpen = true;
           f.seedsPlanted = true;
           s.eng.growMs = 0;
-          fx.push({ type: "world", event: "planted", objectId: o.id }, { type: "toast", text: "Seeds planted!", tone: "good" });
+          fx.push({ type: "world", event: "planted", objectId: o.id });
+          // Phase 5: planting also switches the grow lights on when the room has power.
+          if (f.batteryRestored) {
+            f.growPowered = true;
+            f.growLightsOn = true;
+            fx.push({ type: "world", event: "growLights", objectId: o.id }, { type: "toast", text: "Seeds planted!", tone: "good" });
+          } else fx.push({ type: "toast", text: "Seeds planted!", tone: "good" });
           tipOnce(s, "plants", fx);
           save();
-        } else fx.push({ type: "toast", text: f.growValveOpen ? "Seeds needed: try the habitat's storage locker." : "The planter is dry. Open the water valve.", tone: "warn" });
+        } else fx.push({ type: "toast", text: wet ? "Needs seeds" : "Needs water", tone: "warn" });
         return fx;
       }
       if (!f.growLightsOn) {
         anim("interact");
-        if (f.growPowered) {
+        if (f.batteryRestored) {
+          f.growPowered = true;
           f.growLightsOn = true;
-          fx.push({ type: "world", event: "growLights", objectId: o.id }, { type: "toast", text: "Grow lights on! Now the plants can grow.", tone: "good" });
+          fx.push({ type: "world", event: "growLights", objectId: o.id }, { type: "toast", text: "Lights on!", tone: "good" });
           save();
-        } else fx.push({ type: "toast", text: "No power. Connect the grow-room power box.", tone: "warn" });
+        } else fx.push({ type: "toast", text: "No power yet", tone: "warn" });
         return fx;
       }
       if (plantStage(s) >= 4 && !f.cropHarvested) {
         f.cropHarvested = true;
         s.eng.growMs = ENGINEERING.growStageMs[0];
         anim("celebrate");
-        fx.push({ type: "world", event: "harvest", objectId: o.id }, { type: "toast", text: "First harvest! Fresh lettuce grown on Mars. A new crop starts growing.", tone: "good" });
+        fx.push({ type: "world", event: "harvest", objectId: o.id }, { type: "toast", text: "First harvest!", tone: "good" });
         save();
         return fx;
       }
       anim("interact");
-      fx.push({ type: "toast", text: `${STAGE_NAMES[plantStage(s)]}. Plants need water, light and power to grow.` });
+      fx.push({ type: "toast", text: STAGE_NAMES[plantStage(s)] });
       return fx;
     }
     case "waterProcessor":
       if (f.waterRestored) {
         anim("interact");
-        fx.push({ type: "toast", text: "Melting ice and pumping water to the tank, the recycler and the greenhouse." });
+        fx.push({ type: "toast", text: "Water flowing" });
       } else if (count(s, "waterCoupling") > 0 && f.batteryRestored) {
         anim("repair");
         use(s, "waterCoupling");
         f.waterRestored = true;
-        fx.push({ type: "world", event: "waterOn", objectId: o.id }, { type: "toast", text: "Water circulation restored! Water flows to the tank, the recycler and the greenhouse.", tone: "good" });
+        // Phase 5: the grow-room valve opens with the water (one repair, visible flow everywhere).
+        f.growValveOpen = true;
+        fx.push({ type: "world", event: "waterOn", objectId: o.id }, { type: "toast", text: "Water flowing!", tone: "good" });
         save();
       } else {
         anim("interact");
         if (!s.seen.includes("water_inspected")) s.seen.push("water_inspected");
-        fx.push({
-          type: "read",
-          title: "WATER PROCESSOR",
-          lines: count(s, "waterCoupling") > 0
-            ? ["Melt-line coupling ready.", "No power on the bus: restore the battery station first."]
-            : ["Status: DRY. Melt-line coupling MISSING.", "The ice-chamber core drill in the Frozen Depths keeps a spare.", "Fastest way: the survey lift next to the workstation."],
-        });
+        fx.push({ type: "toast", text: count(s, "waterCoupling") > 0 ? "No power yet" : "Pipe connector missing", tone: "info" });
         save();
       }
       return fx;
     case "seismometer":
       anim("interact");
       if (!f.canyonPostFixed) {
-        fx.push({ type: "toast", text: "No power. The recharge post next to it is dead.", tone: "warn" });
+        fx.push({ type: "toast", text: "No power. Fix the post", tone: "warn" });
       } else if (!f.seismometerRead) {
         f.seismometerRead = true;
         s.inventory.recording = Math.min(99, s.inventory.recording + 1);
         fx.push(
           { type: "item", item: "recording", objectId: o.id, amount: 1 },
           { type: "world", event: "seismometer", objectId: o.id },
-          { type: "read", title: "SEISMOMETER // CANYON STATION", lines: ["Recording saved: 214 small marsquakes since the crew left.", "Real science: NASA's InSight lander heard more than 1,300 marsquakes.", "(New journal entry: Marsquakes)"] },
+          { type: "read", title: "QUAKE SENSOR", lines: ["214 small marsquakes recorded."] },
         );
         save();
-      } else fx.push({ type: "toast", text: "Listening to Mars. Quiet today." });
+      } else fx.push({ type: "toast", text: "Quiet today" });
       return fx;
     case "deepProbe":
       anim("interact");
@@ -489,14 +486,14 @@ function performFacility(o: WorldObject, s: GameState, fx: Effect[], save: () =>
         fx.push(
           { type: "item", item: "sample", objectId: o.id, amount: 1 },
           { type: "world", event: "deepProbe", objectId: o.id },
-          { type: "read", title: "DEEP SURVEY PROBE", lines: ["Deep ice core downloaded and a sample cylinder released.", "Layers of ice and dust, like the rings of a tree: a record of Mars' climate.", "(Simplified: real ice layers take thousands of years to form.)"] },
+          { type: "read", title: "DEEP PROBE", lines: ["Ice layers, like tree rings."] },
         );
         save();
-      } else fx.push({ type: "toast", text: "The probe's work is done." });
+      } else fx.push({ type: "toast", text: "Done" });
       return fx;
     case "telescopeNorth":
       anim("interact");
-      fx.push({ type: "read", title: "SURVEY TELESCOPE", lines: ["Far to the north, beyond the haze...", "a faint line of lights blinks on the horizon.", "Blink. Pause. Blink. As if it is waiting for someone."] });
+      fx.push({ type: "read", title: "TELESCOPE", lines: ["Far north, a light blinks.", "As if it is waiting."] });
       if (!f.observatoryReached) {
         f.observatoryReached = true;
         fx.push({ type: "world", event: "telescope", objectId: o.id });

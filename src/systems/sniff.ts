@@ -11,7 +11,7 @@
  */
 import { SNIFF_RADIUS, SNIFF_REVEAL_RADIUS } from "../config/constants";
 import { objectPos, type WorldObject } from "../data/world";
-import type { GameState } from "./state";
+import { gearReady, type GameState } from "./state";
 
 export interface SniffTarget {
   id: string;
@@ -41,7 +41,7 @@ const CRITICAL_ITEMS = new Set(["commsModule", "metal", "electronics"]);
 
 export function sniffableObjects(objects: WorldObject[], s: GameState): WorldObject[] {
   return objects.filter(
-    (o) => (o.kind === "buried" && !s.collected.includes(o.id)) || (o.kind === "secret" && !s.seen.includes(o.id)),
+    (o) => gearReady(s, o.needs) && ((o.kind === "buried" && !s.collected.includes(o.id)) || (o.kind === "secret" && !s.seen.includes(o.id))),
   );
 }
 

@@ -168,6 +168,11 @@ const OBJECTS: WorldObject[] = [
   // ---- 5: Ridge Camp ----
   { id: "cp_ridge_camp", kind: "checkpoint", col: 53, row: 34, label: "Ridge Camp" },
   { id: "recharge_camp", kind: "recharge", col: 55, row: 34, label: "camp charger" },
+  // Phase 5: workbench materials.
+  { id: "metal_ridge", kind: "buried", col: 63, row: 34, item: "metal" },
+  { id: "elec_ridge", kind: "buried", col: 40, row: 58, item: "electronics" },
+  { id: "metal_ridge2", kind: "pickup", col: 28, row: 58, item: "metal" },
+  { id: "elec_ridge2", kind: "pickup", col: 30, row: 58, item: "electronics" },
   { id: "comms_junction", kind: "commsJunction", col: 58, row: 34, label: "ridge junction" },
   {
     id: "log_camp",

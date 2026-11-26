@@ -9,7 +9,7 @@ import { sciIconUrl } from "../art/icons";
 import { FACILITIES, OPTIONAL_SYSTEMS, SUIT, type FacilityId, type OptionalSystem, type SurvivalMode } from "../data/engineering";
 import { CATEGORIES, SCIENCE, type ScienceCategory } from "../data/science";
 import { allocationFits, plantStage, recommendedAllocation, restorationProgress, STAGE_NAMES, type PowerStatus } from "../systems/engineering";
-import { SURVIVAL_LABELS, suitActive } from "../systems/survival";
+import { SURVIVAL_LABELS, suitActive, suitMaxOf } from "../systems/survival";
 import type { GameState } from "../systems/state";
 
 function el<K extends keyof HTMLElementTagNameMap>(tag: K, cls = "", text?: string): HTMLElementTagNameMap[K] {
@@ -27,7 +27,7 @@ function btn(label: string, onClick: () => void, cls = "px-btn secondary"): HTML
 }
 
 type Health = "ok" | "paused" | "offline" | "brownout";
-const HEALTH_WORD: Record<Health, string> = { ok: "Running", paused: "Switched off", offline: "Not restored", brownout: "Low power" };
+const HEALTH_WORD: Record<Health, string> = { ok: "Working", paused: "Off", offline: "Needs repair", brownout: "Low power" };
 const HEALTH_SYM: Record<Health, string> = { ok: "✔", paused: "■", offline: "✖", brownout: "!" };
 
 export function facilityHealth(id: FacilityId, s: GameState, p: PowerStatus): Health {
@@ -67,22 +67,25 @@ export class BaseHud {
     this.el.append(this.suitEl, this.powerEl);
   }
 
-  update(s: GameState, p: PowerStatus, mode: SurvivalMode): void {
+  update(s: GameState, p: PowerStatus, mode: SurvivalMode, show: { suit: boolean; power: boolean } = { suit: true, power: true }): void {
     const on = suitActive(s);
-    const pct = Math.round((s.eng.suit / SUIT.max) * 100);
+    const max = suitMaxOf(s);
+    const pct = Math.round((s.eng.suit / max) * 100);
     const low = mode !== "relaxed" && pct <= 25;
     const trend = p.trend > 0 ? "▲" : p.trend < 0 ? "▼" : "•";
     const bat = p.storage ? `${Math.round((p.battery / p.capacity) * 100)}%` : "--";
-    const key = `${on}|${pct}|${low}|${trend}|${bat}|${p.haze}|${mode}`;
+    const key = `${on}|${pct}|${low}|${trend}|${bat}|${p.haze}|${mode}|${show.suit}|${show.power}`;
     if (key === this.last) return;
     this.last = key;
-    this.el.classList.toggle("hidden", !on);
+    this.el.classList.toggle("hidden", !on || (!show.suit && !show.power));
+    this.suitEl.classList.toggle("hidden", !show.suit);
+    this.powerEl.classList.toggle("hidden", !show.power);
     this.suitFill.style.width = `${pct}%`;
-    this.suitText.textContent = mode === "relaxed" ? "SUIT ∞" : `SUIT ${pct}%${low ? " LOW" : ""}`;
+    this.suitText.textContent = mode === "relaxed" ? "SUIT ∞" : `${pct}%${low ? " LOW" : ""}`;
     this.suitEl.classList.toggle("low", low);
     this.suitEl.setAttribute("aria-valuenow", String(Math.round(s.eng.suit)));
-    this.suitEl.title = low ? "Suit energy low: find a recharge post (ϟ) or rest on your mat. Walking, sniffing and barking are always free." : "Suit energy: used by thruster jumps and long scans.";
-    this.powerEl.textContent = `${p.haze ? "⚠ " : "☀ "}BASE ${bat} ${trend}`;
+    this.suitEl.title = low ? "Suit low: recharge at a ϟ post. Walking still works." : "Suit energy";
+    this.powerEl.textContent = `${p.haze ? "⚠ Low power" : `☀ Base ${bat}`}`;
     this.powerEl.classList.toggle("alert", p.haze);
     this.powerEl.title = p.storage ? `Battery ${bat}, ${p.trend > 0 ? "charging" : p.trend < 0 ? "draining" : "steady"}` : "Battery not restored yet";
   }
@@ -96,10 +99,10 @@ const ORDER: FacilityId[] = ["solar", "battery", "habitat", "lifeSupport", "shel
 export function baseStatusCard(s: GameState, p: PowerStatus, mode: SurvivalMode, detailed: boolean, onToggle: () => void, onClose: () => void): HTMLElement {
   const card = el("div", "menu-card px-panel base-card");
   const prog = restorationProgress(s);
-  card.append(el("h2", "", "Base Status"));
-  card.append(el("p", "base-sub", `Outpost restoration: ${prog.done} of ${prog.total}${p.haze ? "  ·  ⚠ DUST HAZE: solar output is low" : ""}`));
+  card.append(el("h2", "", "Base"));
+  card.append(el("p", "base-sub", `${prog.done} of ${prog.total} fixed${p.haze ? " · ⚠ Dust haze" : ""}`));
 
-  // The network diagram: sun → panels → battery → machines; water feeds life support and plants.
+  // Advanced: the network diagram (sun → battery → machines; water → life support and plants).
   const diagram = el("div", "base-diagram");
   diagram.setAttribute("aria-hidden", "true");
   const node = (id: FacilityId) => {
@@ -116,13 +119,14 @@ export function baseStatusCard(s: GameState, p: PowerStatus, mode: SurvivalMode,
   const row2 = el("div", "base-row water");
   row2.append(node("water"), el("span", "arrow", "→ Life Support + Greenhouse"));
   diagram.append(row1, row2);
-  card.append(diagram);
+  if (detailed) card.append(diagram);
 
   const list = el("ul", "base-list");
   for (const id of ORDER) {
     const h = facilityHealth(id, s, p);
     const li = el("li", h);
-    li.append(el("span", "sym", FACILITIES[id].symbol), el("span", "nm", FACILITIES[id].name), el("span", "st", `${HEALTH_SYM[h]} ${HEALTH_WORD[h]}`));
+    const word = id === "battery" && h === "ok" ? "Ready" : id === "greenhouse" && h === "ok" && s.flags.seedsPlanted && plantStage(s) < 4 ? "Growing" : HEALTH_WORD[h];
+    li.append(el("span", "sym", FACILITIES[id].symbol), el("span", "nm", FACILITIES[id].name.replace(" Station", "").replace(" System", "").replace(" Array", "").replace("Radiation ", "")), el("span", "st", `${HEALTH_SYM[h]} ${word}`));
     if (detailed) {
       const d = FACILITIES[id];
       li.append(el("span", "det", d.demand ? `${d.demand} PU${d.critical ? " · critical" : ""}` : d.role));
@@ -149,7 +153,7 @@ export function baseStatusCard(s: GameState, p: PowerStatus, mode: SurvivalMode,
     card.append(dl);
   }
   const row = el("div", "base-buttons");
-  row.append(btn(detailed ? "Simple view" : "Detailed view", onToggle), btn("Close", onClose, "px-btn"));
+  row.append(btn(detailed ? "Simple" : "Advanced details", onToggle, "px-btn secondary small"), btn("Close", onClose, "px-btn"));
   card.append(row);
   return card;
 }
@@ -167,14 +171,14 @@ export function distributionCard(
   onClose: () => void,
 ): HTMLElement {
   const card = el("div", "menu-card px-panel dist-card");
-  card.append(el("h2", "", "Power Console"));
-  card.append(el("p", "base-sub", p.haze ? "⚠ Dust haze! The panels make less power. Choose what to keep running." : "Share out the base's power. Critical systems always stay on."));
+  card.append(el("h2", "", "Power"));
+  card.append(el("p", "base-sub", p.haze ? "⚠ Dust haze: less power. Pick what stays on." : "Life support always stays on."));
   const fits = allocationFits(s, mode, draft);
   const critical = (["habitat", "lifeSupport", "shelter"] as FacilityId[]).filter((id) => p.restored[id]);
   const list = el("div", "dist-list");
   for (const id of critical) {
     const r = el("div", "dist-row locked");
-    r.append(el("span", "sym", FACILITIES[id].symbol), el("span", "nm", FACILITIES[id].name), el("span", "pu", `${FACILITIES[id].demand} PU`), el("span", "lock", "🔒 Always on"));
+    r.append(el("span", "sym", FACILITIES[id].symbol), el("span", "nm", FACILITIES[id].name), el("span", "pu", "▮".repeat(FACILITIES[id].demand)), el("span", "lock", "🔒 Always on"));
     list.append(r);
   }
   for (const id of OPTIONAL_SYSTEMS) {
@@ -184,7 +188,7 @@ export function distributionCard(
     box.checked = draft[id];
     box.disabled = !p.restored[id];
     box.addEventListener("change", () => onDraft({ ...draft, [id]: box.checked }));
-    r.append(box, el("span", "sym", FACILITIES[id].symbol), el("span", "nm", FACILITIES[id].name), el("span", "pu", `${FACILITIES[id].demand} PU`), el("span", "lock", !p.restored[id] ? "Not restored" : draft[id] ? "ON" : "OFF"));
+    r.append(box, el("span", "sym", FACILITIES[id].symbol), el("span", "nm", FACILITIES[id].name), el("span", "pu", "▮".repeat(FACILITIES[id].demand)), el("span", "lock", !p.restored[id] ? "Broken" : draft[id] ? "ON" : "OFF"));
     list.append(r);
   }
   card.append(list);
@@ -194,7 +198,8 @@ export function distributionCard(
   const fill = el("div", "dist-fill");
   fill.style.width = `${Math.min(100, (want / Math.max(1, p.gen)) * 100)}%`;
   bar.append(fill);
-  card.append(bar, el("p", `dist-verdict ${fits ? "ok" : "over"}`, `${fits ? "✔ Fits" : "! Too much"}: machines want ${want} PU, the panels make ${p.gen.toFixed(1)} PU${p.storage ? " (the battery covers short gaps)" : ""}.`));
+  card.append(bar, el("p", `dist-verdict ${fits ? "ok" : "over"}`, fits ? "✔ Enough power" : "! Not enough power"));
+  bar.title = `${want} PU wanted · ${p.gen.toFixed(1)} PU made (game units)`;
   const row = el("div", "base-buttons");
   row.append(
     btn("Recommended", () => onDraft(recommendedAllocation(s, mode))),
@@ -208,10 +213,11 @@ export function distributionCard(
 // ---------------------------------------------------------------------------
 // Science journal
 // ---------------------------------------------------------------------------
-export function scienceCard(s: GameState, category: ScienceCategory, open: string | null, onCategory: (c: ScienceCategory) => void, onOpen: (id: string | null) => void, onClose: () => void): HTMLElement {
-  const card = el("div", "menu-card px-panel sci-card");
+export function scienceCard(s: GameState, category: ScienceCategory, open: string | null, onCategory: (c: ScienceCategory) => void, onOpen: (id: string | null) => void, onClose: () => void, embedded = false): HTMLElement {
+  const card = el("div", embedded ? "sci-body" : "menu-card px-panel sci-card");
   const have = SCIENCE.filter((e) => s.science.includes(e.id)).length;
-  card.append(el("h2", "", "Science Journal"), el("p", "base-sub", `${have} of ${SCIENCE.length} entries found. Real science, with the game's made-up parts marked.`));
+  if (!embedded) card.append(el("h2", "", "Science Journal"));
+  card.append(el("p", "base-sub", `${have} of ${SCIENCE.length} found`));
   const tabs = el("div", "sci-tabs");
   tabs.setAttribute("role", "tablist");
   for (const c of CATEGORIES) {
@@ -246,6 +252,7 @@ export function scienceCard(s: GameState, category: ScienceCategory, open: strin
     }
     list.append(item);
   }
-  card.append(list, btn("Close", onClose, "px-btn"));
+  card.append(list);
+  if (!embedded) card.append(btn("Close", onClose, "px-btn"));
   return card;
 }

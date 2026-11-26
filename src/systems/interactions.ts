@@ -10,7 +10,7 @@ import { ITEMS, RECIPES, type Cost, type ItemId } from "../data/items";
 import { TIPS } from "../data/story";
 import type { WorldObject } from "../data/world";
 import { canAfford, collectOnce, count, spend } from "./inventory";
-import { allPanelsClean, isPowered, SOLAR_PANELS, type GameState } from "./state";
+import { allPanelsClean, gearReady, isPowered, SOLAR_PANELS, type GameState } from "./state";
 
 export type { AnimName, Effect, Interaction, InteractionContext, WorldEvent } from "./effects";
 import type { Effect, Interaction, InteractionContext } from "./effects";
@@ -19,10 +19,6 @@ import { performPhase4, phase4Interaction, syncScience } from "./facilities";
 
 export function costText(cost: Cost): string {
   return (Object.keys(cost) as ItemId[]).map((k) => `${cost[k]} ${ITEMS[k].short}`).join(" + ");
-}
-
-function itemLabel(o: WorldObject): string {
-  return o.label ?? ITEMS[o.item ?? "metal"].name;
 }
 
 export function getInteraction(o: WorldObject, s: GameState, ctx: InteractionContext): Interaction | null {
@@ -36,38 +32,38 @@ export function getInteraction(o: WorldObject, s: GameState, ctx: InteractionCon
     case "hatch":
       return s.flags.hatchOpen ? null : { verb: "Open hatch" };
     case "pickup":
-      return s.collected.includes(o.id) ? null : { verb: `Pick up ${itemLabel(o)}` };
+      return s.collected.includes(o.id) || !gearReady(s, o.needs) ? null : { verb: `Take ${ITEMS[o.item ?? "metal"].name}` };
     case "buried":
-      if (s.collected.includes(o.id) || !s.abilities.sniff || !ctx.revealed.has(o.id)) return null;
+      if (s.collected.includes(o.id) || !s.abilities.sniff || !ctx.revealed.has(o.id) || !gearReady(s, o.needs)) return null;
       return { verb: "Dig" };
     case "solarControl":
       if (!s.flags.solarRepaired) {
         return canAfford(s, RECIPES.solarRepair)
-          ? { verb: "Repair solar array", detail: `Uses ${costText(RECIPES.solarRepair)}` }
-          : { verb: "Inspect solar array", detail: `Needs ${costText(RECIPES.solarRepair)}` };
+          ? { verb: "Fix solar box", detail: costText(RECIPES.solarRepair) }
+          : { verb: "Check solar box", detail: `Needs ${costText(RECIPES.solarRepair)}` };
       }
-      return { verb: "Check solar array" };
+      return { verb: "Solar box" };
     case "solarPanel":
-      return s.sweptPanels.includes(o.id) ? null : { verb: "Sweep dust", detail: "Tail sweep!" };
+      return s.sweptPanels.includes(o.id) ? null : { verb: "Sweep" };
     case "battery":
       return { verb: "Check battery" };
     case "habitat":
       return { verb: "Check habitat" };
     case "receiver":
-      if (!s.flags.inspectedReceiver) return { verb: "Inspect receiver" };
+      if (!s.flags.inspectedReceiver) return { verb: "Check radio" };
       if (!s.flags.moduleInstalled) {
         return count(s, "commsModule") > 0
-          ? { verb: "Install comms module" }
-          : { verb: "Inspect receiver", detail: "Comms module missing" };
+          ? { verb: "Fix radio" }
+          : { verb: "Check radio", detail: "Part missing" };
       }
       if (!s.flags.commsOnline) {
-        return powered ? { verb: "Tune receiver" } : { verb: "Inspect receiver", detail: "No power" };
+        return powered ? { verb: "Tune radio" } : { verb: "Check radio", detail: "No power" };
       }
       // Phase 3: Mission 02 ends here, when Laika brings the relay cell up from the depths.
-      if (!s.flags.relayAnalyzed && s.inventory.relayCell > 0) return { verb: "Analyse the relay cell" };
-      return { verb: "Replay signal" };
+      if (!s.flags.relayAnalyzed && s.inventory.relayCell > 0) return { verb: "Decode cell" };
+      return { verb: "Radio" };
     case "workstation":
-      if (!powered) return { verb: "Inspect workstation", detail: "No power" };
+      if (!powered) return { verb: "Workbench", detail: "No power" };
       if (!s.abilities.thrusters) {
         return canAfford(s, RECIPES.thrusterBoots)
           ? { verb: "Build Thruster Boots", detail: `Uses ${costText(RECIPES.thrusterBoots)}` }
@@ -75,22 +71,22 @@ export function getInteraction(o: WorldObject, s: GameState, ctx: InteractionCon
       }
       return { verb: "Inspect workstation" };
     case "sign":
-      return { verb: "Read sign" };
+      return { verb: "Read" };
     case "log":
-      return { verb: `Read ${o.label ?? "log"}` };
+      return { verb: "Read" };
     case "rover":
-      return { verb: "Read rover log" };
+      return { verb: "Read" };
     case "bridgeControl":
       if (s.flags.bridgeExtended) return null;
-      return s.flags.commsOnline ? { verb: "Extend bridge" } : { verb: "Use bridge control", detail: "No handshake code" };
+      return s.flags.commsOnline ? { verb: "Extend bridge" } : { verb: "Bridge", detail: "Locked" };
     case "stationDoor":
       if (s.flags.stationDoorOpen) return null;
-      return { verb: "Open door", detail: s.flags.commsOnline ? undefined : "Sealed" };
+      return { verb: "Open door", detail: s.flags.commsOnline ? undefined : "Locked" };
     case "beacon":
-      if (s.flags.demoComplete && !s.flags.m2Briefed) return { verb: "Check the relay logs" };
-      return { verb: s.flags.demoComplete ? "Replay the signal" : "Trace the signal" };
+      if (s.flags.demoComplete && !s.flags.m2Briefed) return { verb: "Read logs" };
+      return { verb: s.flags.demoComplete ? "Listen" : "Trace signal" };
     case "echoSensor":
-      return { verb: "Bark", detail: "Say hello to the sensor" };
+      return { verb: "Bark" };
     case "checkpoint":
     case "secret":
     case "practiceConsole":
@@ -118,7 +114,7 @@ function tipOnce(s: GameState, key: keyof typeof TIPS, fx: Effect[]): void {
 function powerCheck(s: GameState, wasPowered: boolean, fx: Effect[]): void {
   if (!wasPowered && isPowered(s)) {
     fx.push({ type: "world", event: "powerOn" }, { type: "focus", objectId: "receiver" }, { type: "anim", name: "celebrate" });
-    fx.push({ type: "toast", text: "POWER RESTORED! The outpost is waking up.", tone: "good" });
+    fx.push({ type: "toast", text: "Power on!", tone: "good" });
     tipOnce(s, "power", fx);
   }
 }
@@ -159,11 +155,15 @@ function performInteractionInner(o: WorldObject, s: GameState, ctx: InteractionC
       if (o.kind === "buried") fx.push({ type: "anim", name: "dig" });
       else fx.push({ type: "anim", name: "interact" });
       fx.push({ type: "item", item, objectId: o.id, amount: 1 });
+      if (item === "navBeacon") {
+        s.flags.beaconFound = true;
+        fx.push({ type: "world", event: "beaconFound", objectId: o.id }, { type: "save" });
+      }
       if (o.fact) fx.push({ type: "read", title: o.label ?? ITEMS[item].name, lines: [o.fact] });
       else if (o.text) fx.push({ type: "read", title: o.text[0], lines: o.text.slice(1) });
-      if (item === "coupling") fx.push({ type: "toast", text: "The power coupling! Take it to the junction below.", tone: "good" });
+      // (item toast says it all)
       if (item === "commsModule") {
-        fx.push({ type: "anim", name: "celebrate" }, { type: "toast", text: "Found the comms module! Take it to the receiver.", tone: "good" });
+        fx.push({ type: "anim", name: "celebrate" });
       }
       if (item === "treat") fx.push({ type: "anim", name: "celebrate" });
       fx.push({ type: "save" });
@@ -179,18 +179,18 @@ function performInteractionInner(o: WorldObject, s: GameState, ctx: InteractionC
         fx.push({ type: "world", event: "solarRepaired" }, { type: "sound", name: "repair" });
         fx.push({
           type: "toast",
-          text: allPanelsClean(s) ? "Array repaired!" : "Array repaired! Now sweep the dust off the panels.",
+          text: "Solar box fixed!",
           tone: "good",
         });
         powerCheck(s, wasPowered, fx);
         fx.push({ type: "save" });
       } else if (!s.flags.solarRepaired) {
         fx.push({ type: "anim", name: "interact" }, { type: "sound", name: "error" });
-        fx.push({ type: "toast", text: `Frame bent, regulator missing. Needs ${costText(RECIPES.solarRepair)}.`, tone: "warn" });
+        fx.push({ type: "toast", text: `Needs ${costText(RECIPES.solarRepair)}`, tone: "warn" });
       } else if (!allPanelsClean(s)) {
-        fx.push({ type: "toast", text: "Repaired, but dusty. Sweep each panel with your tail!" });
+        fx.push({ type: "toast", text: "Sweep the panels" });
       } else {
-        fx.push({ type: "toast", text: "Array output: 100%. Sunny day on Mars!", tone: "good" });
+        fx.push({ type: "toast", text: "Working" });
       }
       break;
 
@@ -199,7 +199,7 @@ function performInteractionInner(o: WorldObject, s: GameState, ctx: InteractionC
       fx.push({ type: "anim", name: "sweep" }, { type: "world", event: "panelClean", objectId: o.id });
       tipOnce(s, "dust", fx);
       if (!s.flags.solarRepaired && allPanelsClean(s)) {
-        fx.push({ type: "toast", text: "Panels clean! The array still needs repairs." });
+        fx.push({ type: "toast", text: "Panels clean" });
       }
       powerCheck(s, wasPowered, fx);
       fx.push({ type: "save" });
@@ -208,7 +208,7 @@ function performInteractionInner(o: WorldObject, s: GameState, ctx: InteractionC
     case "battery":
       unlockSniff(s, fx);
       fx.push({ type: "anim", name: "interact" });
-      fx.push({ type: "toast", text: wasPowered ? "Battery charging: 87% and rising." : "Battery: 3%. Waiting for solar power." });
+      fx.push({ type: "toast", text: wasPowered ? "Battery charging" : "No power" });
       tipOnce(s, "battery", fx);
       break;
 
@@ -216,7 +216,7 @@ function performInteractionInner(o: WorldObject, s: GameState, ctx: InteractionC
       fx.push({ type: "anim", name: "interact" });
       fx.push({
         type: "toast",
-        text: wasPowered ? "Habitat lights on. Warm inside... but nobody home." : "Habitat sealed. No power.",
+        text: wasPowered ? "Warm inside" : "No power",
       });
       break;
 
@@ -236,12 +236,12 @@ function performInteractionInner(o: WorldObject, s: GameState, ctx: InteractionC
           fx.push({ type: "spend", cost: { commsModule: 1 } }, { type: "world", event: "moduleInstalled" }, { type: "sound", name: "repair" });
           fx.push({
             type: "toast",
-            text: wasPowered ? "Module installed! Now tune the receiver." : "Module installed! The receiver still needs power.",
+            text: wasPowered ? "Radio fixed!" : "Part in. Needs power",
             tone: "good",
           });
           fx.push({ type: "save" });
         } else {
-          fx.push({ type: "sound", name: "error" }, { type: "toast", text: "The comms module is missing. Try sniffing in the canyon.", tone: "warn" });
+          fx.push({ type: "sound", name: "error" }, { type: "toast", text: "Part missing. Sniff east!", tone: "warn" });
         }
       } else if (!s.flags.commsOnline) {
         if (wasPowered) {
@@ -250,7 +250,7 @@ function performInteractionInner(o: WorldObject, s: GameState, ctx: InteractionC
           tipOnce(s, "radio", fx);
           fx.push({ type: "save" });
         } else {
-          fx.push({ type: "sound", name: "error" }, { type: "toast", text: "No power. Repair and clean the solar array.", tone: "warn" });
+          fx.push({ type: "sound", name: "error" }, { type: "toast", text: "No power. Fix the solar panels", tone: "warn" });
         }
       } else if (!s.flags.relayAnalyzed && s.inventory.relayCell > 0) {
         s.flags.relayAnalyzed = true;
@@ -263,7 +263,7 @@ function performInteractionInner(o: WorldObject, s: GameState, ctx: InteractionC
     case "workstation":
       fx.push({ type: "anim", name: "interact" });
       if (!wasPowered) {
-        fx.push({ type: "sound", name: "error" }, { type: "toast", text: "Fabricator offline. No power.", tone: "warn" });
+        fx.push({ type: "sound", name: "error" }, { type: "toast", text: "No power", tone: "warn" });
       } else if (!s.abilities.thrusters && canAfford(s, RECIPES.thrusterBoots)) {
         spend(s, RECIPES.thrusterBoots);
         s.abilities.thrusters = true;
@@ -290,7 +290,7 @@ function performInteractionInner(o: WorldObject, s: GameState, ctx: InteractionC
         s.flags.bridgeExtended = true;
         fx.push({ type: "world", event: "bridgeExtend" }, { type: "focus", objectId: "bridgeControl" }, { type: "save" });
       } else {
-        fx.push({ type: "sound", name: "error" }, { type: "toast", text: "NO HANDSHAKE CODE. The outpost radio must be online.", tone: "warn" });
+        fx.push({ type: "sound", name: "error" }, { type: "toast", text: "Locked. Fix the radio first", tone: "warn" });
       }
       break;
 
@@ -300,7 +300,7 @@ function performInteractionInner(o: WorldObject, s: GameState, ctx: InteractionC
         s.flags.stationDoorOpen = true;
         fx.push({ type: "world", event: "stationDoorOpen" }, { type: "save" });
       } else {
-        fx.push({ type: "sound", name: "error" }, { type: "toast", text: "SEALED. Awaiting handshake code.", tone: "warn" });
+        fx.push({ type: "sound", name: "error" }, { type: "toast", text: "Locked", tone: "warn" });
       }
       break;
 
@@ -343,7 +343,7 @@ export function barkEffects(near: WorldObject | null, s: GameState): Effect[] {
     fx.push({ type: "world", event: "echoSensor", objectId: near.id });
     if (!s.seen.includes(near.id)) {
       s.seen.push(near.id);
-      if (near.fact) fx.push({ type: "read", title: "ECHO SENSOR", lines: ["Bark detected! Playing it back...", near.fact] });
+      if (near.fact) fx.push({ type: "read", title: "ECHO SENSOR", lines: ["Woof... woof!", near.fact] });
       fx.push({ type: "save" });
     }
   } else if (near?.kind === "rover") {

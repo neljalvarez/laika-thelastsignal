@@ -229,12 +229,25 @@ const P = (face: Face, tail: Tail, legs: Legs, o: Partial<Omit<Pose, "face" | "t
   ...o,
 });
 
-function compose(p: Pose, boots: boolean): Grid {
+/** Phase 5: equipment and cosmetics drawn on Laika (kept small so she stays recognisable). */
+export interface LaikaGearLook {
+  boots: boolean;
+  booster?: boolean;
+  reserve?: boolean;
+  lamp?: boolean;
+  efficient?: boolean;
+  patch?: boolean;
+  collarStar?: boolean;
+}
+
+function compose(p: Pose, bootsOrLook: boolean | LaikaGearLook): Grid {
+  const look: LaikaGearLook = typeof bootsOrLook === "boolean" ? { boots: bootsOrLook } : bootsOrLook;
+  const boots = look.boots;
   let g = blank(LAIKA_W, LAIKA_H);
   const b = p.body;
   // Torso top row for a column; the rear (x=5) moves by `tilt`, the front (x=17) stays put.
   const top = (x: number) => 12 + b + Math.round((p.tilt * (17 - x)) / 12);
-  const cuff = boots ? "E" : "R";
+  const cuff = boots ? (look.efficient ? "Z" : "E") : "R";
   const paw = boots ? "Y" : "W";
   const drawLeg = (x: number, leg: Leg, far: boolean) => {
     const col = x + leg.dx;
@@ -264,10 +277,14 @@ function compose(p: Pose, boots: boolean): Grid {
     }
   }
   const tb = top(9);
-  torso.push([tb - 1, 7, "YYYYY"], [tb - 2, 8, "YYY"], [tb - 3, 9, "N"]); // backpack + antenna
+  if (look.reserve) torso.push([tb - 1, 6, "YYYYYY"], [tb - 2, 6, "YYYYY"], [tb - 3, 7, "YYY"]); // bigger backpack
+  else torso.push([tb - 1, 7, "YYYYY"], [tb - 2, 8, "YYY"]); // backpack
+  if (look.booster) torso.push([tb - 3, 9, "N"], [tb - 4, 9, "N"], [tb - 5, 9, "E"]); // tall antenna with a tip
+  else torso.push([tb - 3, 9, "N"]); // antenna
+  if (look.patch) torso.push([top(10) + 1, 10, "E"]); // mission patch
   const ts = top(12);
   torso.push([ts + 1, 12, "YY"], [ts + 2, 12, "Y" + p.sensor]); // suit sensor ("nose" scanner)
-  torso.push([top(14), 13, "RRRR"]); // collar ring
+  torso.push([top(14), 13, look.collarStar ? "RREE" : "RRRR"]); // collar ring (+ star)
   g = patch(g, torso);
   drawLeg(6, p.legs.nh, false);
   drawLeg(15, p.legs.nf, false);
@@ -279,6 +296,7 @@ function compose(p: Pose, boots: boolean): Grid {
   const h = head(p.face);
   const hx = h.flip ? 11 + p.hx : 14 + p.hx;
   g = stamp(g, h.flip ? mirror(h.grid) : h.grid, hx, 2 + b + p.hy);
+  if (look.lamp) g = patch(g, [[2 + b + p.hy, h.flip ? hx + 2 : hx + 7, "EE"]]); // survey lamp on the helmet
   return outline(g, "N", new Set(["H", "G", "L"]));
 }
 
@@ -382,7 +400,7 @@ export const LAIKA_POSES: Record<string, Pose> = {
 
 export const LAIKA_FRAME_NAMES = Object.keys(LAIKA_POSES);
 
-export function laikaFrames(boots: boolean): Array<{ name: string; grid: Grid }> {
+export function laikaFrames(boots: boolean | LaikaGearLook): Array<{ name: string; grid: Grid }> {
   return LAIKA_FRAME_NAMES.map((name) => ({ name, grid: compose(LAIKA_POSES[name], boots) }));
 }
 

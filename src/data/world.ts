@@ -242,6 +242,8 @@ export interface WorldObject {
   /** Fine horizontal offset in pixels. */
   dx?: number;
   item?: ItemId;
+  /** Phase 5: only shown / detectable once Laika has built this equipment (e.g. "booster"). */
+  needs?: string;
   /** Short name used by prompts ("Read <label>"). */
   label?: string;
   /** Text for signs and logs: each entry is one short line. */
@@ -348,6 +350,12 @@ export const OBJECTS: WorldObject[] = [
   { id: "cp_outpost_lift", kind: "checkpoint", col: 80, row: 24, label: "Survey Lift", hidden: true },
   { id: "metal_crates", kind: "pickup", col: 84, row: 22, dx: 8, item: "metal" },
   { id: "elec_outpost", kind: "buried", col: 89, row: 24, item: "electronics" },
+  // Phase 5: workbench materials for Chapter 5 (a short walk from the workbench) and the booster-only cache.
+  { id: "metal_lower", kind: "pickup", col: 86, row: 31, item: "metal" },
+  { id: "metal_hab", kind: "pickup", col: 66, row: 31, item: "metal" },
+  { id: "elec_lower", kind: "pickup", col: 45, row: 31, item: "electronics" },
+  { id: "beacon_cache", kind: "buried", col: 104, row: 28, item: "navBeacon", needs: "booster", label: "Nav Beacon" },
+  { id: "metal_cache", kind: "buried", col: 147, row: 31, item: "metal", needs: "booster" },
   {
     id: "sign_canyon",
     kind: "sign",

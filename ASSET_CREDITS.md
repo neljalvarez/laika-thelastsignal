@@ -50,6 +50,11 @@ them in the new context yet).
   Science Journal category icons live in `src/art/icons.ts`. Reference images supplied by the team (a top-down
   domed base, a cut-away dome habitat and a systems diagram) were used only as layout inspiration.
 
+- **Phase 5 art** is drawn in code too: five equipment icons (`EQ_RAW` in `src/art/icons.ts`), the Nav Beacon
+  icon, Laika's gear pixels (antenna, bigger pack, lamp, boot cuffs, patch, star collar) and cosmetic palette swaps
+  in `src/art/laika.ts` / `registerTextures.ts`, and four habitat souvenirs (sample shelf, mission patch, photo,
+  rover model) in `src/art/baseProps.ts`. Phase 5 adds no sounds, images, fonts or libraries.
+
 ## Fonts and libraries
 
 | Package | Licence | Role |

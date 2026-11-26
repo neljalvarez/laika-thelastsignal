@@ -69,7 +69,8 @@ describe("Mission 02: Beneath the Red", () => {
     const o = getObjective(afterMission01());
     expect(o.stage).toBe("m2_brief");
     expect(o.title).toContain("Mission 02");
-    expect(o.target).toBe("beacon");
+    // Phase 5: the briefing arrives by radio (chapters.autoAdvance), so there is no console to walk back to.
+    expect(o.target).toBeUndefined();
   });
 
   it("plays start to finish on the rules, with objectives following each step", () => {
@@ -131,10 +132,10 @@ describe("Mission 02: Beneath the Red", () => {
   it("the survey lift needs the circuit, then a one-time start (the shortcut)", () => {
     const s = afterMission01();
     use(s, "beacon");
-    expect(verb(s, "depths_lift")).toBe("Inspect survey lift");
+    expect(verb(s, "depths_lift")).toBe("Check lift") // Phase 5: one-to-three-word prompts;
     expect(use(s, "depths_lift").some((e) => e.type === "travel")).toBe(false);
     s.flags.circuitRestored = true;
-    expect(verb(s, "depths_lift")).toBe("Start the survey lift");
+    expect(verb(s, "depths_lift")).toBe("Start lift");
     use(s, "depths_lift");
     expect(s.flags.depthsLiftOpen).toBe(true);
     expect(use(s, "outpost_lift").find((e) => e.type === "travel")).toMatchObject({ map: "depths", arrive: "cp_depths_lift" });

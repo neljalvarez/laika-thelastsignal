@@ -25,7 +25,27 @@ data-driven world, pure simulation, effects, derived objectives, and reachabilit
   12-entry Science Journal with sources, three optional challenges, visible base transformation, save format v4.
   See `PHASE_4_HANDOFF.md`.
 
-## Next: priorities carried into Phase 5
+- **Phase 5: crafting, equipment and a big simplification.** Much less text (short objectives, prompts,
+  transmissions and item names), a minimal contextual HUD with a detailed option, chapters instead of completion
+  screens (the next chapter starts by itself), a route-aware waypoint (Guided / Explorer / Minimal), a simpler map
+  with filters, a shorter tutorial, a notification queue, Relaxed survival by default, fewer Mission 04 steps, a
+  workbench with five pieces of visible equipment (Metal and Circuits only), optional caches for each, five
+  cosmetics, habitat souvenirs, a Journal, Chapter 5 *Built to Explore*, a new main menu and tabbed settings, save
+  format v5. See `PHASE_5_HANDOFF.md`.
+
+## Next: priorities for Phase 6
+
+1. **Blind human playtests** using the procedure in `PHASE_5_HANDOFF.md`. Phase 5 was driven by one round of
+   player feedback ("too much text", "don't know what to do", "Mission 01 feels like the end") but its fixes have
+   only been checked by scripts. Watch for: first objective found without help, the marker followed, Chapter 2
+   recognised as a continuation, a first upgrade built without help.
+2. **Magnetic Retriever** (postponed from Phase 5) and a stronger optional use for the Reserve Battery outside
+   Expedition mode.
+3. **Map filters** for science points and equipment caches (only landmarks / collected / route names exist).
+4. **Listen to the audio** and **real phones**, still open from earlier phases.
+5. The trip north that Chapter 5 sets up.
+
+## Earlier list: priorities carried into Phase 5 (kept for reference)
 
 Still open (nothing here has been done by a person yet):
 
