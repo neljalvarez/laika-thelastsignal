@@ -1,4 +1,4 @@
-# Game Design — LAIKA: THE LAST SIGNAL (Phases 1–3)
+# Game Design — LAIKA: THE LAST SIGNAL (Phases 1–4)
 
 ## Pitch
 
@@ -220,6 +220,104 @@ Brighter caves (setting), Easy Jumps offered after repeated failed jumps on the 
 and relay responses, puzzle states shown with symbols and words, hints that first name the region and point to
 the right lift or gate when the target is on another map, region-entrance and pre-climb checkpoints, and no
 timing in any mandatory puzzle.
+
+## The base comes alive (Phase 4)
+
+Design rule from the brief: survival creates **decisions and environmental challenges, never chores**. There is no
+food, oxygen or health meter, no death, no timer and no offline drain. What Laika manages is a small, visible
+power network and her suit's energy, and both always recover.
+
+### Mission 04: A Place to Call Home
+
+After Mission 03 the Ares Station's console calls: the outpost is the only place with a crew-rated shelter and
+water. Laika goes home and restores it. Fourteen steps; the objective always recommends one, but the work can be
+done in any sensible order (the shelter or the greenhouse before life support, for example):
+
+1. Answer the station call (suit energy starts here; the call also fills the suit).
+2. Go home (hint: freight lift down, survey lift up). 3. Check the base terminal (opens Base Status).
+4. Find the spare battery regulator in the ship's cargo locker. 5. Install it: the battery station runs and
+   the lower level gets power.
+6. Inspect the life-support recycler; 7. sniff out and dig up the pump cartridge in the maintenance bay; install
+   it, connect the power box, start the recycler.
+8. Inspect the water processor; 9. take the spare melt-line coupling from the Frozen Depths' core drill (survey
+   lift both ways); install it: water flows to the tank, the recycler and the grow room.
+10. Connect the grow-room power, open the valve, take seeds from the habitat locker, plant, switch on the lights.
+11. Wake the shelter monitor, bark at the probe inside and the probe outside, log the readings.
+12. LIGHTS OUT (below). 13. Sweep the dust off two panels. 14. Step outside: the finale.
+
+A bot that knows the route needs about 3 minutes; the brief's target for a first-time player is 8–12 minutes
+(not yet measured with people).
+
+### The lower level
+
+The habitat's ladder (E at the habitat dome) leads to a cut-away basement under the outpost, cols 40–88:
+radiation shelter (thick hull walls) · maintenance bay with the power console and the buried cartridge ·
+Laika's quarters (mat, storage locker, ladder up, a checkpoint) · life support · grow room (under the
+greenhouse dome) · water room. Every room has a sign and a status light (a tick or a bar, not only a colour) and
+is dark until its machine runs. Pipes along the ceiling flow when water runs; cables glow when powered.
+
+### Visible base transformation
+
+| Condition | What you see |
+| --- | --- |
+| Abandoned | Dark rooms with red status lights, a broken recycler with an empty cartridge slot (crossed), a dry cracked planter, dead power boxes, an unlit console |
+| Partly restored | Lit rooms one by one, yellow cables, the recycler's drums filling and its fan turning, a vent on the habitat roof |
+| Fully restored | Blue water pipes flowing, pink-and-blue grow lights, plants growing in the planter *and* in a glass greenhouse dome on the surface, steam from the vent, a blinking beacon on the habitat after the finale |
+
+### Power
+
+Three clean panels make 15 PU; a dusty one makes 1. The battery holds 100 BU (80 in Expedition) and moves
+0.25 BU per PU-second of surplus or shortage, so it fills in about half a minute and drains slowly. Demand:
+habitat 2, life support 3, shelter 1 (critical, always on) · water 1, greenhouse 3, research 2 (optional). When the
+battery is empty and the sun is not enough, optional systems pause in the order greenhouse → research → water and
+come back on their own. All values are in `src/data/engineering.ts` and are fictional units.
+
+### LIGHTS OUT
+
+A few seconds after the last facility comes online (while Laika is at the outpost), an alarm sounds, the view
+takes a warm dust tint and sunlight drops to 62 % (70 % Relaxed, 50 % Expedition). The objective sends Laika to
+the power console: life support, habitat and shelter are shown locked on; she chooses which optional systems keep
+running and sees a "fits / too much" bar in words. Turning off only the grow lights is enough in Relaxed and
+Adventure; Expedition also needs the research gear off. A wrong choice costs nothing (the battery simply keeps
+draining slowly) and can be changed at once. When it fits, the haze passes but leaves two panels dusty; a tail
+sweep on each restores full power and switches everything back on.
+
+### Suit energy and Survival Assistance
+
+From Mission 04 the suit meter appears. Walking, normal jumps, sniffing, barking and the headlamp are **always
+free**. Thruster jumps cost energy, and the suit adds a **boosted second air jump** (Thruster Boots needed). A
+scan costs a little; with too little energy the scanner still works at 55 % range, so no dig spot can be locked
+away. After 4 s without spending, a reserve cell refills to a safe floor. Recharge posts (ϟ on the map) stand in
+every region; the mat in Laika's quarters also recharges.
+
+| | Relaxed | Adventure (default) | Expedition |
+| --- | --- | --- | --- |
+| Thruster jump / boost / scan | free | 10 / 25 / 2 | 16 / 36 / 4 |
+| Reserve floor (always ≥ one thruster jump) | refills to full | 25 | 20 |
+| Battery capacity | 100 | 100 | 80 |
+| LIGHTS OUT sunlight | 70 % | 62 % | 50 % |
+| Scanner range | full | full | 85 % |
+
+The setting is in Settings and can change at any time; changing it clamps values, never removes progress.
+
+### Optional challenges
+
+- **A: Forgotten instrument (Crimson Canyon).** Sniff out a power cell on the canyon floor, repair the dead
+  recharge post, then read the old seismometer (a recording and the Marsquakes journal entry). No boots needed.
+- **B: Deep survey (Frozen Depths).** A recharge post at the chamber mouth, a thruster jump to an ice ledge, then
+  the boosted jump to the deep probe (a sample and an ice-layer survey card).
+- **C: High observation platform (Echo Ridge).** From the weather-station rock, the boosted jump to a scaffold
+  with a telescope pointing north (a rover part and a story beat). B and C are 7 tiles up: Thruster Boots alone
+  reach about 6, the boost about 8.6 (measured in play).
+
+### Base Status and Science Journal
+
+Base Status (base terminal, or Pause → Base status) has a **simple** view (a network diagram from the reference
+image: sun → battery → machines, water → life support and greenhouse; each machine with a symbol and ✔ / ✖ / ■ / !
+plus a word) and a **detailed** view (sunlight, output, use, battery and trend, plant stage, suit energy, mode, and
+a note that the units are made up). The Science Journal (Pause → Science journal) has 8 categories and 12 entries.
+Each entry: a short line, "Learn more" (the real science), an "In the game" note (what is fiction) and its source.
+Entries unlock from what Laika does and are announced with a quiet toast, never a pop-up over play.
 
 ## World layout (tiles are 16 px; the world is 240 × 34 tiles)
 

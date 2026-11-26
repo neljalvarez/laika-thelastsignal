@@ -262,8 +262,8 @@ async def scenario_CD(p):
     await pg.get_by_text("Continue").click()
     await pg.wait_for_timeout(2500)
     st = await bot.S()
-    # Saves migrate step by step to the current format (v3 since Phase 3).
-    ok("Phase 1 save loads as the current version (v3)", st["version"] == 3)
+    # Saves migrate step by step to the current format (v3 since Phase 3, v4 since Phase 4).
+    ok("Phase 1 save loads as the current version (v4 since Phase 4)", st["version"] == 4, str(st["version"]))
     # Every Phase 1 count is kept exactly; items added in later phases start at zero.
     later = {k: v for k, v in st["inventory"].items() if k not in save["inventory"]}
     ok("inventory preserved", all(st["inventory"][k] == v for k, v in save["inventory"].items()) and all(v == 0 for v in later.values()), str(st["inventory"]))

@@ -4,13 +4,14 @@
 
 A 2D pixel-art side-scrolling adventure for the browser. You play as Laika, who wakes up inside her damaged
 spacecraft on Mars. Mission Control is silent. Explore, sniff out buried parts, repair an abandoned outpost, restore
-the radio, and follow a mysterious signal across Crimson Canyon, down into frozen caves and up to a ridge-top relay
-tower.
+the radio, follow a mysterious signal across Crimson Canyon, down into frozen caves and up to a ridge-top relay
+tower, then come home and turn the abandoned outpost into a working Martian base.
 
 What you can play today: **Mission 00: First Pawprints** (a 1–2 minute guided tutorial in the spacecraft),
 **Mission 01: A Signal in the Silence** (Landing Outpost → Crimson Canyon → Ares Station), and, new in Phase 3,
 **Mission 02: Beneath the Red** (the Frozen Depths) and **Mission 03: Echoes Above** (Echo Ridge), across five
-connected regions. It is the standalone successor to the original NASA Space Apps strategy game
+connected regions, and, new in Phase 4, **Mission 04: A Place to Call Home** (restore the outpost's power, life
+support, water, greenhouse and radiation shelter). It is the standalone successor to the original NASA Space Apps strategy game
 [`laikamars-nasa`](https://github.com/neljalvarez/laikamars-nasa), which is left untouched.
 
 > **Fiction notice.** This is an alternate-history story inspired by Laika, the first animal to orbit the Earth
@@ -25,12 +26,15 @@ connected regions. It is the standalone successor to the original NASA Space App
 | Jump (hold for higher) | Space (also W / ↑) | JUMP | A |
 | Interact / Dig / Repair | E (also Enter) | Action button (shows the verb) | X |
 | Sniff (suit scanner) | F | SNIFF (appears once unlocked) | Y |
-| Bark (optional) | B | BARK | LB |
+| Bark (optional; also takes radiation-probe readings) | B | BARK | LB |
 | Sprint | Shift | RUN (toggle) | B / RB / RT |
 | World map | M (also Tab) | ▦ button | Back / Select |
 | Pause | Esc (also P) | II button | Start |
 
-The **Headlamp** (found in the Frozen Depths) needs no button: once fixed, it shines wherever Laika faces.
+The **Headlamp** (found in the Frozen Depths) needs no button: once fixed, it shines wherever Laika faces. From
+Mission 04, **thruster jumps use suit energy** (the meter under the buttons, top right). Walking, normal jumps,
+sniffing, barking and the headlamp are always free. Recharge at posts marked ϟ or by resting on Laika's mat.
+**Settings → Survival assistance** picks Relaxed, Adventure (default) or Expedition at any time.
 
 Keys are remappable in **Settings → Controls**, and every on-screen prompt shows the key you actually bound (or the
 touch / gamepad button you last used). The **?** button gives a hint for the current objective; **Pause → Controls**
@@ -43,8 +47,9 @@ Requires Node 18.18+ (developed on Node 22).
 ```bash
 npm install
 npm run dev        # http://localhost:5173
-npm test           # 141 Vitest unit tests (regions, Missions 00-03, puzzles, saves + migration, movement,
-                   #   level reachability on every map, scanner, hints, animation states, settings)
+npm test           # 195 Vitest unit tests (engineering simulation, suit energy, Missions 00-04, regions, puzzles,
+                   #   saves + migration v1-v4, movement, level reachability on every map, scanner, hints,
+                   #   animation states, settings, the base's visible look)
 npm run typecheck  # strict TypeScript
 npm run build      # type-check + production build into dist/
 npm run preview    # serve the production build at http://localhost:4173
@@ -53,7 +58,7 @@ npm run preview    # serve the production build at http://localhost:4173
 Add `?debug` to the URL to expose `window.__laika` (state, player position, tutorial stage, hint level, scanner
 tracking, current map) for automated play-testing. Browser play-tests live in `playtest/` (Python + Playwright):
 `playthrough.py` is the Phase 1 route, `phase2.py` runs Phase 2 scenarios A–H, `phase3.py` runs Phase 3
-scenarios A–K.
+scenarios A–K and `phase4.py` runs Phase 4 scenarios A–M.
 
 ## Deploy (Vercel, free Hobby plan)
 
@@ -64,6 +69,29 @@ scenarios A–K.
 Any static host works: upload the contents of `dist/`. Asset paths are relative (`base: "./"`).
 
 ## What's in the game
+
+### Phase 4: survival, engineering and the base
+
+- **Mission 04: A Place to Call Home.** The Ares Station calls Laika home. Fourteen steps restore the Landing
+  Outpost in a flexible order: a battery regulator from the ship, a pump cartridge sniffed out of the maintenance
+  bay, a melt-line coupling from the Frozen Depths' core drill, seeds from the habitat locker, and two radiation
+  probes that answer Laika's bark.
+- **A base you can walk through.** The habitat's ladder leads to a new lower level (a cut-away basement): Laika's
+  quarters, the maintenance bay with the power console, life support, a grow room and the water room, plus a
+  thick-walled radiation shelter. Rooms light up one by one; pipes and cables show flow; the surface gains a
+  greenhouse dome with the crop growing inside, a steaming vent and a beacon light.
+- **Power you can see.** Solar panels feed a battery; machines draw from it. A fixed-step simulation (it pauses in
+  menus, transmissions, the tutorial and hidden tabs, and never runs while the game is closed).
+- **LIGHTS OUT.** A dust haze cuts the sun. Share out the power at the console (life support is locked on), then
+  sweep the dust off two panels. Nothing can be lost; every choice can be changed.
+- **Suit energy.** Thruster jumps and long scans cost energy, with a reserve cell that refills to a safe level,
+  recharge posts in every region and three Survival Assistance levels. Basic movement is always free.
+- **Three optional challenges.** Repair a dead recharge post in the canyon to wake an old seismometer; climb to a
+  deep survey probe in an ice fissure; reach an observation platform on Echo Ridge. The last two need the suit's
+  boosted jump, so they reward planning energy.
+- **Base status and a Science Journal.** A simple and a detailed status view, and twelve journal entries in eight
+  categories that separate real science (with sources) from the game's fiction.
+- Save format v4 with migration from every earlier version.
 
 ### Phase 3: world expansion
 
@@ -128,8 +156,9 @@ Any static host works: upload the contents of `dist/`. Asset paths are relative 
 - [ARCHITECTURE.md](ARCHITECTURE.md): technical design and how to extend it.
 - [ROADMAP.md](ROADMAP.md): future phases.
 - [ASSET_CREDITS.md](ASSET_CREDITS.md): where every asset and fact comes from.
-- [PHASE_1_HANDOFF.md](PHASE_1_HANDOFF.md), [PHASE_2_HANDOFF.md](PHASE_2_HANDOFF.md) and
-  [PHASE_3_HANDOFF.md](PHASE_3_HANDOFF.md): status, test results, known issues and how to continue.
+- [PHASE_1_HANDOFF.md](PHASE_1_HANDOFF.md), [PHASE_2_HANDOFF.md](PHASE_2_HANDOFF.md),
+  [PHASE_3_HANDOFF.md](PHASE_3_HANDOFF.md) and [PHASE_4_HANDOFF.md](PHASE_4_HANDOFF.md): status, test results,
+  known issues and how to continue.
 
 ## Credits
 

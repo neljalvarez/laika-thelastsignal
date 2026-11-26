@@ -350,7 +350,7 @@ async def scenario_B(p):
     v2 = await phase2_v2_save()
     await inject(pg, v2)
     st = await S(pg)
-    ok("v2 save loads as v3", st["version"] == 3)
+    ok("v2 save loads as the current version (v3 in Phase 3, v4 since Phase 4)", st["version"] >= 3, str(st["version"]))
     ok("inventory and collectibles kept", st["inventory"]["treat"] == 1 and st["inventory"]["sample"] == 2 and "treat" in st["collected"], str(st["inventory"]))
     ok("Mission 01 still complete, tutorial not forced", st["flags"]["demoComplete"] and st["tutorial"]["status"] == "done")
     ok("map back-filled from old checkpoints", "s_station" in st["discovered"]["sections"] and "s_outpost" in st["discovered"]["sections"], str(st["discovered"]["sections"]))
