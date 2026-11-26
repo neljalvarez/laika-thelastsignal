@@ -58,6 +58,8 @@ export interface Settings {
   captions: boolean;
   /** Phase 3: lighter darkness in caves (the Frozen Depths stay readable without the Headlamp). */
   brightCaves: boolean;
+  /** Phase 4: Survival Assistance (suit energy and engineering difficulty). Changeable any time. */
+  survival: "relaxed" | "adventure" | "expedition";
   bindings: Record<Action, string>;
 }
 
@@ -75,6 +77,7 @@ export function defaultSettings(prefersReducedMotion = false): Settings {
     textSpeed: "normal",
     captions: true,
     brightCaves: false,
+    survival: "adventure",
     bindings: { ...DEFAULT_BINDINGS },
   };
 }
@@ -105,6 +108,7 @@ export function parseSettings(text: string | null, prefersReducedMotion = false)
     textSpeed: ["normal", "slow", "instant"].includes(raw.textSpeed as string) ? (raw.textSpeed as Settings["textSpeed"]) : d.textSpeed,
     captions: typeof raw.captions === "boolean" ? raw.captions : d.captions,
     brightCaves: typeof raw.brightCaves === "boolean" ? raw.brightCaves : d.brightCaves,
+    survival: ["relaxed", "adventure", "expedition"].includes(raw.survival as string) ? (raw.survival as Settings["survival"]) : d.survival,
     bindings: { ...DEFAULT_BINDINGS },
   };
   if (typeof raw.bindings === "object" && raw.bindings !== null) {

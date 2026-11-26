@@ -26,7 +26,7 @@ export interface Objective {
   /** ONE actionable instruction: what to do and where. Shown in the collapsed HUD. */
   primary: string;
   /** The action used to do it (its key / button is shown next to the instruction). */
-  action?: "interact" | "sniff" | "jump" | "move";
+  action?: "interact" | "sniff" | "jump" | "move" | "bark";
   /** World object (or area marker) the primary instruction refers to, for hints and guidance. */
   target?: string;
   /** Full checklist, shown only when the mission panel is expanded. */
@@ -230,9 +230,11 @@ export const MISSION_03 = "Mission 03: Echoes Above";
 export function journal(s: GameState): Array<{ label: string; have: number; total: number }> {
   const total = (pred: (o: (typeof ALL_OBJECTS)[number]) => boolean) => ALL_OBJECTS.filter(pred).length;
   return [
-    { label: "Geological samples", have: count(s, "sample"), total: total((o) => o.item === "sample") + 1 },
+    // +1 the drill's water-ice core (Phase 3), +1 the Ice Fissure's deep core (Phase 4).
+    { label: "Geological samples", have: count(s, "sample"), total: total((o) => o.item === "sample") + 2 },
     { label: "Golden Treats", have: count(s, "treat"), total: total((o) => o.item === "treat") },
-    { label: "Research recordings", have: count(s, "recording"), total: total((o) => o.item === "recording") },
+    // +1 the canyon seismometer's recording (Phase 4).
+    { label: "Research recordings", have: count(s, "recording"), total: total((o) => o.item === "recording") + 1 },
     { label: "Rover R-2 parts", have: count(s, "roverPart"), total: total((o) => o.item === "roverPart") },
   ];
 }
@@ -340,6 +342,8 @@ function phase3Objective(s: GameState): Objective | null {
   }
   if (!f.signalTraced) return m3("m3_trace", "Echo Ridge: climb the relay tower and trace the signal at the top.", "tower_console", "The tower door is open. Zigzag up the stairs inside.");
   if (!f.ridgeCableOpen) return m3("m3_cable", "Echo Ridge: start the cable car at the top of the tower.", "ridge_cable", "The cable car station is at the east end of the tower's top deck.");
+  const m4 = mission04Objective(s, opt);
+  if (m4) return m4;
   return {
     stage: "m3_complete",
     title: "Missions complete!",
@@ -348,4 +352,108 @@ function phase3Objective(s: GameState): Objective | null {
     optional: opt,
     hint: "Use the map (M) to find areas you have not explored yet. Shortcuts: survey lift and cable car.",
   };
+}
+
+// ---------------------------------------------------------------------------
+// Phase 4: Mission 04 "A Place to Call Home"
+// ---------------------------------------------------------------------------
+
+export const MISSION_04 = "Mission 04: A Place to Call Home";
+
+function m4Steps(s: GameState): ObjectiveStep[] {
+  const f = s.flags;
+  return [
+    { text: "Answer the call at the Ares Station console", done: f.m4Briefed },
+    { text: "Go home to the Landing Outpost", done: f.baseReturned || f.batteryRestored },
+    { text: "Check the base status terminal", done: f.baseSurveyed || f.batteryRestored },
+    { text: "Restore the Battery Station", done: f.batteryRestored },
+    { text: "Restore the Life Support Recycler", done: f.recyclerOn },
+    { text: "Restore water circulation", done: f.waterRestored },
+    { text: "Wake the greenhouse and plant the first crop", done: f.seedsPlanted && f.growLightsOn },
+    { text: "Restore the radiation shelter", done: f.shelterRestored },
+    { text: "LIGHTS OUT: balance the power and clean the panels", done: f.lightsOutDone },
+    { text: "See the restored outpost", done: f.m4Complete },
+  ];
+}
+
+function m4Optional(s: GameState, base: ObjectiveStep[]): ObjectiveStep[] {
+  const f = s.flags;
+  return [
+    { text: "Harvest the first lettuce", done: f.cropHarvested },
+    { text: "Forgotten instrument: wake the canyon seismometer", done: f.seismometerRead },
+    { text: "Deep survey: the Ice Fissure probe (Frozen Depths)", done: f.fissureSurveyed },
+    { text: "High observation platform (Echo Ridge)", done: f.observatoryReached },
+    ...base,
+  ];
+}
+
+/**
+ * One recommended next step at a time. Restoration tasks can be done in any sensible order: the
+ * recommendation follows the first unfinished chain, and every chain's sub-steps are derived from
+ * flags and items, so whatever the player did first is respected.
+ */
+function mission04Objective(s: GameState, baseOptional: ObjectiveStep[]): Objective | null {
+  const f = s.flags;
+  if (f.m4Complete) return null;
+  const has = (item: Parameters<typeof count>[1]) => count(s, item) > 0;
+  const m4 = (stage: string, primary: string, target: string | undefined, hint: string, action: Objective["action"] = "interact"): Objective => ({
+    stage,
+    title: MISSION_04,
+    primary,
+    action,
+    target,
+    steps: m4Steps(s),
+    optional: m4Optional(s, baseOptional),
+    hint,
+  });
+  if (!f.m4Briefed) return m4("m4_call", "Ares Station: answer the call at the signal console.", "beacon", "Ride the cable car down from the tower; the console is at the back of the station.");
+  // Any base work already done means Laika is home and has seen what the base needs.
+  const working = f.batteryRestored || f.recyclerInspected || f.shelterInspected || s.seen.includes("water_inspected");
+  if (!f.baseReturned && !working) return m4("m4_home", "Go home to the Landing Outpost.", "base_terminal", "Fastest: freight lift down, then the survey lift up. It comes out next to the workstation.");
+  if (!f.baseSurveyed && !working) return m4("m4_survey", "Landing Outpost: check the base status terminal by the habitat.", "base_terminal", "The terminal stands just left of the habitat dome.");
+  // 1. Battery: everything on the lower level runs from the battery bus.
+  if (!f.batteryRestored) {
+    if (has("regulator")) return m4("m4_battery", "Battery Station: install the spare regulator.", "battery", "The battery station is between the solar panels and the habitat.");
+    return m4("m4_regulator", "Find a spare battery regulator in the ship's cargo locker.", "cargo_locker", "Back inside the ship, on the lower deck near the hatch.");
+  }
+  // 2. Life support.
+  if (!f.recyclerOn) {
+    if (!f.recyclerInspected) return m4("m4_recycler", "Lower Level: inspect the life support recycler.", "recycler", "Go into the habitat: its stairs lead down to the lower level. The recycler is east of the bedroom.");
+    if (!f.recyclerFixed) {
+      if (has("recyclerPart")) return m4("m4_cartridge_in", "Lower Level: install the pump cartridge in the recycler.", "recycler", "The recycler is east of the habitat bedroom.");
+      return m4("m4_cartridge", "Lower Level: sniff out the spare pump cartridge in the maintenance bay.", "buried_cartridge", "West of the bedroom. Sniff, then dig where the scanner points.", "sniff");
+    }
+    if (!f.recyclerPowered) return m4("m4_recycler_power", "Lower Level: connect the recycler's power box.", "recycler_power", "The power box is right next to the recycler.");
+    return m4("m4_recycler_on", "Lower Level: start the recycler.", "recycler", "Press the action button at the recycler.");
+  }
+  // 3. Water.
+  if (!f.waterRestored) {
+    if (has("waterCoupling")) return m4("m4_water_in", "Lower Level: install the melt-line coupling in the water processor.", "water_processor", "The water room is at the east end of the lower level.");
+    if (!s.seen.includes("water_inspected")) return m4("m4_water", "Lower Level: inspect the water processor.", "water_processor", "The water room is at the east end of the lower level.");
+    return m4("m4_coupling", "Frozen Depths: take the spare melt-line coupling from the core drill.", "sampler", "Ride the survey lift down (next to the workstation). The core drill is just east of the lift hall.");
+  }
+  // 4. Greenhouse.
+  if (!(f.seedsPlanted && f.growLightsOn)) {
+    if (!f.growPowered) return m4("m4_grow_power", "Lower Level: connect the grow-room power.", "grow_power", "The grow room is under the greenhouse dome.");
+    if (!f.growValveOpen) return m4("m4_valve", "Lower Level: open the grow room's water valve.", "grow_valve", "The valve is on the east side of the grow room.");
+    if (!f.seedsPlanted) {
+      if (!has("seeds")) return m4("m4_seeds", "Habitat: look for seeds in the storage locker.", "habitat_storage", "The locker is in Laika's bedroom, right of the stairs.");
+      return m4("m4_plant", "Grow room: plant the seeds.", "planter", "The planter is in the middle of the grow room.");
+    }
+    return m4("m4_lights", "Grow room: switch on the grow lights.", "planter", "Plants need light. Press the action button at the planter.");
+  }
+  // 5. Shelter.
+  if (!f.shelterRestored) {
+    if (!f.shelterInspected) return m4("m4_shelter", "Lower Level: wake the radiation shelter's monitor.", "shelter_terminal", "The shelter is the thick-walled room at the west end of the lower level.");
+    if (!f.probeInRead) return m4("m4_probe_in", "Shelter: bark at the probe inside the shelter.", "probe_shelter", "The probes listen to your suit radio. Press Bark (or the action button) next to it.", "bark");
+    if (!f.probeOutRead) return m4("m4_probe_out", "Outside: bark at the surface probe by the battery.", "probe_surface", "Up the habitat stairs, then west past the battery station.", "bark");
+    return m4("m4_shelter_log", "Shelter: log the readings at the monitor.", "shelter_terminal", "Back to the shelter at the west end of the lower level.");
+  }
+  // 6. LIGHTS OUT.
+  if (!f.lightsOutStarted) return m4("m4_wait", "Landing Outpost: check on the base.", "base_terminal", "Everything is running. Go and see the outpost.");
+  if (!f.lightsOutBalanced) {
+    return m4("m4_balance", "LIGHTS OUT: share out the power at the console on the lower level.", "dist_console", "Life support always stays on. Turn off the systems that need more power than the haze leaves: the grow lights need the most.");
+  }
+  if (!f.lightsOutDone) return m4("m4_sweep", "LIGHTS OUT: sweep the dust off the dusty solar panels.", s.eng.dusty[0] ?? "panel_1", "The haze left dust on two panels. Tail sweep!", "interact");
+  return m4("m4_look", "Step outside and look at your outpost.", "base_terminal", "Go up the habitat stairs and stand outside.");
 }

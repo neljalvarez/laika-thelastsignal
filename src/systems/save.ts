@@ -10,7 +10,10 @@ import { ALL_OBJECTS, MAP_IDS, MAPS, mapOfObject, type MapId } from "../data/reg
 import { OBJECTS } from "../data/world";
 import { STAGE_ORDER, type TutorialStageId } from "../data/tutorial";
 import { sectionAt } from "./regions";
-import { ALL_FLAGS, createNewState, RELAY_START_AIM, SOLAR_PANELS, STATE_VERSION, type AbilityId, type FlagId, type GameState } from "./state";
+import { ENGINEERING, SUIT } from "../data/engineering";
+import { SCIENCE_IDS } from "../data/science";
+import { syncScience } from "./facilities";
+import { ALL_FLAGS, createEngState, createNewState, RELAY_START_AIM, SOLAR_PANELS, STATE_VERSION, type AbilityId, type FlagId, type GameState } from "./state";
 
 export interface KeyValueStore {
   getItem(key: string): string | null;
@@ -66,6 +69,14 @@ export function migrate(raw: Record<string, unknown>): Record<string, unknown> |
     data = { ...data, version: 3, abilities, discovered: { maps: ["surface"], sections: [], landmarks: [] }, puzzles: { relayAim: { ...RELAY_START_AIM } } };
     v = 3;
   }
+  // v3 -> v4 (Phase 4): the outpost's engineering. Nothing a Phase 1-3 player achieved changes:
+  // restoration flags start false, the battery starts empty (it only stores power once restored),
+  // the suit is full, and the journal is back-filled from what was already achieved (repairState).
+  // A player who finished Mission 03 continues straight into Mission 04.
+  if (v === 3) {
+    data = { ...data, version: 4, eng: createEngState(), science: [] };
+    v = 4;
+  }
   if (v === STATE_VERSION) return data;
   return null; // unknown / future version: incompatible
 }
@@ -108,6 +119,20 @@ export function sanitize(raw: Record<string, unknown>): GameState {
     s.puzzles.relayAim[id] = typeof v === "number" && Number.isInteger(v) && v >= 0 && v <= 4 ? v : RELAY_START_AIM[id];
   }
   if (typeof raw.playTimeMs === "number" && Number.isFinite(raw.playTimeMs)) s.playTimeMs = Math.max(0, raw.playTimeMs);
+  // Phase 4 operating conditions: every number is clamped, unknown panels and entries are dropped.
+  // A corrupt engineering block recovers to safe defaults instead of erasing the campaign.
+  const e = isObj(raw.eng) ? raw.eng : {};
+  const num = (v: unknown, lo: number, hi: number, d: number) => (typeof v === "number" && Number.isFinite(v) ? Math.max(lo, Math.min(hi, v)) : d);
+  const al = isObj(e.alloc) ? e.alloc : {};
+  const base = createEngState();
+  s.eng = {
+    battery: num(e.battery, 0, Math.max(...Object.values(ENGINEERING.batteryCapacity)), 0),
+    alloc: { water: al.water !== false, greenhouse: al.greenhouse !== false, research: al.research !== false },
+    growMs: num(e.growMs, 0, ENGINEERING.growStageMs[ENGINEERING.growStageMs.length - 1], 0),
+    suit: num(e.suit, 0, SUIT.max, base.suit),
+    dusty: [...new Set(strArray(e.dusty).filter((p) => SOLAR_PANELS.includes(p)))],
+  };
+  s.science = [...new Set(strArray(raw.science).filter((id) => SCIENCE_IDS.has(id)))];
   // Tutorial record: anything unreadable recovers to "skipped" so a broken record can never trap
   // the player in Mission 00 or lock them out of the campaign.
   const t = isObj(raw.tutorial) ? raw.tutorial : null;
@@ -133,6 +158,17 @@ const RELAY_TARGET: Record<string, number> = Object.fromEntries(ALL_OBJECTS.filt
  * - If the solar array cannot be repaired with what is held plus what is left in the world, top up the difference.
  */
 export function repairState(s: GameState): string[] {
+  // Rules feed each other (a Phase 4 milestone can imply a Phase 3 one), so repeat until stable.
+  const all: string[] = [];
+  for (let i = 0; i < 4; i++) {
+    const fixed = repairOnce(s);
+    all.push(...fixed);
+    if (fixed.length === 0) break;
+  }
+  return all;
+}
+
+function repairOnce(s: GameState): string[] {
   const fixed: string[] = [];
   const f = s.flags;
   const imply = (cond: boolean, flag: keyof typeof f, why: string) => {
@@ -244,6 +280,66 @@ export function repairState(s: GameState): string[] {
   };
   critical("coupling", "coupling_cache", f.circuitRestored, s.collected.includes("coupling_cache") || s.inventory.coupling > 0);
   critical("relayCell", "sampler", f.cellInstalled, s.collected.includes("sampler") || s.inventory.relayCell > 0 || f.relayAnalyzed);
+
+  // Phase 4: later restoration milestones imply earlier ones (hand-edited or interrupted saves stay completable).
+  imply(f.m4Complete, "lightsOutDone", "mission 04 complete implies lights out done");
+  imply(f.lightsOutDone, "lightsOutBalanced", "lights out done implies balanced");
+  imply(f.lightsOutBalanced, "lightsOutStarted", "balanced implies lights out started");
+  for (const k of ["batteryRestored", "recyclerOn", "waterRestored", "seedsPlanted", "growLightsOn", "shelterRestored"] as const) {
+    imply(f.lightsOutStarted, k, `lights out implies ${k}`);
+  }
+  imply(f.recyclerOn, "recyclerPowered", "recycler on implies powered");
+  imply(f.recyclerOn, "recyclerFixed", "recycler on implies fixed");
+  imply(f.recyclerFixed || f.recyclerPowered, "recyclerInspected", "recycler work implies inspected");
+  imply(f.growLightsOn, "growPowered", "grow lights imply grow power");
+  imply(f.growLightsOn || f.cropHarvested, "seedsPlanted", "grow lights imply planted");
+  imply(f.seedsPlanted, "growValveOpen", "planted implies watered");
+  imply(f.growValveOpen, "waterRestored", "valve open implies water restored");
+  imply(f.shelterRestored, "probeOutRead", "shelter implies outside reading");
+  imply(f.shelterRestored, "probeInRead", "shelter implies inside reading");
+  imply(f.probeOutRead || f.probeInRead || f.shelterRestored, "shelterInspected", "readings imply monitor awake");
+  for (const k of ["recyclerPowered", "waterRestored", "growPowered", "shelterInspected"] as const) {
+    imply(f[k], "batteryRestored", `${k} implies the battery bus`);
+  }
+  imply(f.batteryRestored || f.baseSurveyed || f.baseReturned, "m4Briefed", "base work implies mission 04 started");
+  imply(f.m4Briefed, "ridgeCableOpen", "mission 04 implies mission 03 complete");
+  imply(f.seismometerRead, "canyonPostFixed", "seismometer read implies post fixed");
+  // Phase 4 mission items: one each, never lost while still needed, gone once installed.
+  const marker = (id: string) => s.seen.includes(`took:${id}`);
+  const unique = (item: "regulator" | "recyclerPart" | "waterCoupling" | "seeds" | "powerCell", usedUp: boolean, gotIt: boolean) => {
+    if (usedUp && s.inventory[item] > 0) {
+      s.inventory[item] = 0;
+      fixed.push(`removed spent ${item}`);
+    } else if (!usedUp && gotIt && s.inventory[item] < 1) {
+      s.inventory[item] = 1;
+      fixed.push(`restored lost ${item}`);
+    }
+    if (s.inventory[item] > 1) s.inventory[item] = 1;
+  };
+  unique("regulator", f.batteryRestored, marker("cargo_locker"));
+  unique("recyclerPart", f.recyclerFixed, s.collected.includes("buried_cartridge"));
+  unique("waterCoupling", f.waterRestored, marker("drill_coupling"));
+  unique("seeds", f.seedsPlanted, marker("habitat_storage"));
+  unique("powerCell", f.canyonPostFixed, s.collected.includes("buried_cell"));
+  // An installed part's source is empty: the world never offers a second one (no free duplicates).
+  const taken = (used: boolean, kind: "collected" | "seen", id: string) => {
+    const list = kind === "collected" ? s.collected : s.seen;
+    if (used && !list.includes(id)) {
+      list.push(id);
+      fixed.push(`marked ${id} as taken`);
+    }
+  };
+  taken(f.batteryRestored, "seen", "took:cargo_locker");
+  taken(f.recyclerFixed, "collected", "buried_cartridge");
+  taken(f.waterRestored, "seen", "took:drill_coupling");
+  taken(f.seedsPlanted, "seen", "took:habitat_storage");
+  taken(f.canyonPostFixed, "collected", "buried_cell");
+  // Operating conditions that must agree with the milestones.
+  if (!f.batteryRestored) s.eng.battery = 0;
+  if (!f.lightsOutBalanced || f.lightsOutDone) s.eng.dusty = [];
+  if (!f.seedsPlanted) s.eng.growMs = 0;
+  // Science journal: back-fill entries for everything already achieved (Phase 1-3 saves).
+  syncScience(s);
 
   // World map: back-fill sections from checkpoints already visited (Phase 1-2 saves have none).
   for (const id of s.visitedCheckpoints) {

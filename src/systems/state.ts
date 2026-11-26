@@ -8,8 +8,11 @@ import type { TutorialStageId } from "../data/tutorial";
 /**
  * v1: Phase 1. v2: Phase 2 adds the Mission 00 tutorial record and the Bark ability.
  * v3: Phase 3 adds Missions 02-03 flags, the Headlamp, new items, map discovery and puzzle state.
+ * v4: Phase 4 adds Mission 04 and the outpost's engineering: restoration flags (permanent), the
+ *     `eng` operating conditions (temporary: battery charge, power allocation, greenhouse growth,
+ *     suit energy, Lights Out dust) and the science journal.
  */
-export const STATE_VERSION = 3;
+export const STATE_VERSION = 4;
 
 export type FlagId =
   | "checkedShipRadio"
@@ -42,7 +45,34 @@ export type FlagId =
   | "towerReached"
   | "signalTraced"
   | "ridgeCableOpen"
-  | "ridgeBridgeOut";
+  | "ridgeBridgeOut"
+  // Phase 4 - Mission 04: A Place to Call Home (permanent restoration milestones)
+  | "m4Briefed"
+  | "baseReturned"
+  | "baseSurveyed"
+  | "batteryRestored"
+  | "recyclerInspected"
+  | "recyclerFixed"
+  | "recyclerPowered"
+  | "recyclerOn"
+  | "waterRestored"
+  | "growPowered"
+  | "growValveOpen"
+  | "seedsPlanted"
+  | "growLightsOn"
+  | "cropHarvested"
+  | "shelterInspected"
+  | "probeOutRead"
+  | "probeInRead"
+  | "shelterRestored"
+  | "lightsOutStarted"
+  | "lightsOutBalanced"
+  | "lightsOutDone"
+  | "m4Complete"
+  | "canyonPostFixed"
+  | "seismometerRead"
+  | "fissureSurveyed"
+  | "observatoryReached";
 
 export const ALL_FLAGS: FlagId[] = [
   "checkedShipRadio",
@@ -74,6 +104,32 @@ export const ALL_FLAGS: FlagId[] = [
   "signalTraced",
   "ridgeCableOpen",
   "ridgeBridgeOut",
+  "m4Briefed",
+  "baseReturned",
+  "baseSurveyed",
+  "batteryRestored",
+  "recyclerInspected",
+  "recyclerFixed",
+  "recyclerPowered",
+  "recyclerOn",
+  "waterRestored",
+  "growPowered",
+  "growValveOpen",
+  "seedsPlanted",
+  "growLightsOn",
+  "cropHarvested",
+  "shelterInspected",
+  "probeOutRead",
+  "probeInRead",
+  "shelterRestored",
+  "lightsOutStarted",
+  "lightsOutBalanced",
+  "lightsOutDone",
+  "m4Complete",
+  "canyonPostFixed",
+  "seismometerRead",
+  "fissureSurveyed",
+  "observatoryReached",
 ];
 
 export type AbilityId = "sniff" | "sweep" | "thrusters" | "bark" | "headlamp";
@@ -107,6 +163,30 @@ export interface GameState {
   discovered: { maps: string[]; sections: string[]; landmarks: string[] };
   /** Phase 3 puzzle state that is not a simple flag: relay dish directions (0 left ... 4 right). */
   puzzles: { relayAim: Record<string, number> };
+  /**
+   * Phase 4 operating conditions. These change while playing and are NOT achievements: a flat
+   * battery or a dusty panel never undoes a restoration flag or a mission.
+   */
+  eng: EngState;
+  /** Phase 4 science journal: ids of unlocked entries (data/science.ts). */
+  science: string[];
+}
+
+export interface EngState {
+  /** Stored energy in BU (0 .. capacity). */
+  battery: number;
+  /** Optional systems switched on at the distribution console. */
+  alloc: { water: boolean; greenhouse: boolean; research: boolean };
+  /** Greenhouse: active-play ms of growth so far. */
+  growMs: number;
+  /** Suit energy (0 .. 100). */
+  suit: number;
+  /** Panels covered by the Lights Out dust (separate from Phase 1's swept panels). */
+  dusty: string[];
+}
+
+export function createEngState(): EngState {
+  return { battery: 0, alloc: { water: true, greenhouse: true, research: true }, growMs: 0, suit: 100, dusty: [] };
 }
 
 /** Starting directions of the turnable relay dishes (Relay A is pre-aimed; it only needs sweeping). */
@@ -118,7 +198,7 @@ export function createNewState(): GameState {
   return {
     version: STATE_VERSION,
     flags,
-    inventory: { metal: 0, electronics: 0, commsModule: 0, sample: 0, treat: 0, coupling: 0, relayCell: 0, recording: 0, roverPart: 0 },
+    inventory: { metal: 0, electronics: 0, commsModule: 0, sample: 0, treat: 0, coupling: 0, relayCell: 0, recording: 0, roverPart: 0, regulator: 0, recyclerPart: 0, waterCoupling: 0, seeds: 0, powerCell: 0 },
     collected: [],
     abilities: { sniff: false, sweep: true, thrusters: false, bark: true, headlamp: false },
     sweptPanels: [],
@@ -129,6 +209,8 @@ export function createNewState(): GameState {
     tutorial: { status: "active", stage: "wake" },
     discovered: { maps: ["surface"], sections: [], landmarks: [] },
     puzzles: { relayAim: { ...RELAY_START_AIM } },
+    eng: createEngState(),
+    science: [],
   };
 }
 

@@ -13,6 +13,8 @@ import { relayOnline } from "../systems/puzzles";
 import type { TutorialState } from "../systems/tutorial";
 import { isPowered, type GameState } from "../systems/state";
 import { DEPTH } from "./WorldView";
+import { facilityTexture } from "./facilityLook";
+import type { PowerStatus } from "../systems/engineering";
 
 interface View {
   o: WorldObject;
@@ -264,6 +266,18 @@ export class ObjectsView {
       case "stationDoor":
       case "secret":
         break;
+      // ---- Phase 4 ----
+      case "facility":
+        // Placeholder; syncBase picks the real texture once the power state is known.
+        v.sprite = img(o.part === "seismometer" ? "seismometer_off" : "power_box_off", o.part === "bed" ? DEPTH.propsBack - 1 : DEPTH.propsBack);
+        break;
+      case "recharge":
+        v.sprite = img(o.broken ? "recharge_dead" : "recharge_on", DEPTH.propsBack);
+        v.extra.push(s.add.image(x, y - 22, "glow").setDepth(DEPTH.fx).setTint(0x7dffb0).setAlpha(0).setBlendMode(Phaser.BlendModes.ADD).setScale(0.5));
+        break;
+      case "stairs":
+        v.sprite = img("ladder", DEPTH.propsBack - 1);
+        break;
     }
     if (this.mapDef.theme.dark && GLINT_KINDS.has(o.kind)) this.glintPoints.push({ x: x + 5, y: y - (v.sprite?.height ?? 16) + 4 });
     this.views.set(o.id, v);
@@ -322,6 +336,39 @@ export class ObjectsView {
     this.syncCables(st, false);
     if (powered && !this.poweredShown) this.showPower(false);
     if (st.flags.commsOnline) this.startReceiverBlink();
+  }
+
+  /** Phase 4: base machines and recharge posts follow the engineering state (called every engine step). */
+  syncBase(st: GameState, p: PowerStatus, frame: 0 | 1): void {
+    for (const v of this.views.values()) {
+      if (v.o.kind === "solarPanel") {
+        const dusty = st.eng.dusty.includes(v.o.id) || !st.sweptPanels.includes(v.o.id);
+        const k = dusty ? "panel_dusty" : "panel_clean";
+        if (v.sprite && v.sprite.texture.key !== k) v.sprite.setTexture(k);
+        continue;
+      }
+      if (v.o.kind !== "facility" && v.o.kind !== "recharge" && v.o.kind !== "stairs") continue;
+      if (v.o.kind === "recharge" && (this.chargingUntil.get(v.o.id) ?? 0) > this.scene.time.now) continue;
+      const key = facilityTexture(v.o, st, p, frame);
+      if (key && v.sprite && v.sprite.texture.key !== key) v.sprite.setTexture(key);
+    }
+  }
+
+  private chargingUntil = new Map<string, number>();
+
+  /** Phase 4: the recharge post lights up while it tops up the suit. */
+  chargeFlash(id: string, reducedMotion: boolean): void {
+    const v = this.views.get(id);
+    if (!v?.sprite) return;
+    this.chargingUntil.set(id, this.scene.time.now + 900);
+    v.sprite.setTexture("recharge_charging");
+    const glow = v.extra[0] as Phaser.GameObjects.Image | undefined;
+    if (glow) {
+      glow.setAlpha(0.9);
+      this.scene.tweens.add({ targets: glow, alpha: 0, duration: reducedMotion ? 200 : 900 });
+    }
+    this.scene.time.delayedCall(900, () => v.sprite?.setTexture("recharge_on"));
+    if (!reducedMotion) this.sparkleAt(v.sprite.x, v.sprite.y - 18, 5);
   }
 
   // ---------------- targeting ----------------

@@ -18,6 +18,7 @@ export const SURFACE: MapDef = {
   sections: [
     { id: "s_ship", name: "Laika's Ship", region: "ship", rect: { x0: 3, x1: 23, y0: 6, y1: 23 } },
     { id: "s_outpost", name: "Landing Outpost", region: "outpost", rect: { x0: 24, x1: 93, y0: 8, y1: 23 } },
+    { id: "s_lower", name: "Outpost Lower Level", region: "outpost", rect: { x0: 40, x1: 88, y0: 25, y1: 30 } },
     { id: "s_canyon_gate", name: "Canyon Gate & Jump Pit", region: "canyon", rect: { x0: 94, x1: 131, y0: 8, y1: 27 } },
     { id: "s_secret_room", name: "Secret Room", region: "canyon", rect: { x0: 104, x1: 111, y0: 28, y1: 31 }, optional: true },
     { id: "s_tunnel", name: "Survey Tunnel & Cavern", region: "canyon", rect: { x0: 112, x1: 151, y0: 28, y1: 31 } },

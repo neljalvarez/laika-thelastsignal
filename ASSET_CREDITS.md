@@ -1,6 +1,6 @@
 # Asset credits and origins
 
-Last reviewed: 2026-11-25. This is a student/team project; it is **not affiliated with or endorsed by NASA**.
+Last reviewed: 2026-11-26. This is a student/team project; it is **not affiliated with or endorsed by NASA**.
 
 ## Music (from the original LAIKA project)
 
@@ -19,7 +19,9 @@ two marked "the team should confirm"). **The team remains responsible for confir
 
 Synthesized at runtime with the Web Audio API (`src/audio/AudioManager.ts`). No recorded audio files. The Martian
 wind is filtered noise, not a recording from Mars. Phase 2 cues (skid, stage complete, console beep, rover beep,
-yawn, scanner tracking) are synthesized the same way.
+yawn, scanner tracking) are synthesized the same way. Phase 4 adds **no new sounds**: the base's machines reuse the
+existing power, mechanism, repair, door, beep and alarm cues (verified to play in code only; nobody has listened to
+them in the new context yet).
 
 ## Art
 
@@ -40,6 +42,13 @@ yawn, scanner tracking) are synthesized the same way.
   a screenshot of an icy cave from another game, and a red Martian landscape painting with a distant tower. The
   last two were used only for **mood and colour direction** (cool blues underground, a warm red horizon with a
   tower on the skyline). No shapes, characters or tiles were copied, and the images are not in the repository.
+
+- **Phase 4 art** (`src/art/baseProps.ts`) is also drawn in code: recharge posts, the base terminal, radiation
+  probes and shelter monitor, the power console, sleeping mat, storage locker, recycler, power boxes, planter with
+  five growth stages, grow lamp, valve, water processor and tank, seismometer, deep probe, telescope, greenhouse
+  dome with crop overlays, vent stack, beacon mast, pipes, cables, room signs and status lights. The 12×12
+  Science Journal category icons live in `src/art/icons.ts`. Reference images supplied by the team (a top-down
+  domed base, a cut-away dome habitat and a systems diagram) were used only as layout inspiration.
 
 ## Fonts and libraries
 
@@ -69,6 +78,14 @@ Every fact in the game is short and simplified. Sources checked on 2026-11-25:
 | **Phase 3:** Mars gets less than half the sunlight Earth does (headlamp card) | Inverse-square law at Mars' ~1.5 AU orbit: about 43–44 % of Earth's sunlight ([timeanddate.com, Sunlight on other planets](https://timeanddate.com/astronomy/sun/sunlight-planets)). A reference site, not NASA; the figure is basic physics |
 | **Phase 3:** Mars' air is so thin that sound barely carries (acoustic sensor) | Same Perseverance sources as the Phase 2 echo sensor above |
 | Basalt (volcanic rock) is common on Mars; radio signals take minutes between Mars and Earth | General planetary-science facts, stated simply |
+| **Phase 4 (journal, Water):** the space station's life support recovers about 98 % of its water | [NASA, NASA Achieves Water Recovery Milestone on International Space Station (2023)](https://www.nasa.gov/missions/station/iss-research/nasa-achieves-water-recovery-milestone-on-international-space-station) |
+| **Phase 4 (journal, Life Support):** the station makes oxygen by splitting water with electricity | Same NASA ECLSS article and its linked ECLSS fact sheet (Oxygen Generation Assembly, electrolysis) |
+| **Phase 4 (journal, Solar Energy / Geology):** InSight ended its mission in 2022 when dust on its panels left it without power; it recorded more than 1,300 marsquakes | [NASA, NASA Retires InSight Mars Lander Mission After Years of Science](https://www.nasa.gov/?p=285060) (1,319 marsquakes) |
+| **Phase 4 (journal, Energy Storage):** Perseverance has two rechargeable lithium-ion batteries for moments when demand is higher than its generator's output | [NASA JPL, Mars 2020 landing press kit: Power](https://www.jpl.nasa.gov/news/press_kits/mars_2020/landing/mission/spacecraft/power) and the launch press kit's power page |
+| **Phase 4 (journal, Growing Plants):** NASA's Veggie grows lettuce under LEDs on the space station; astronauts ate red romaine grown there in 2015 | [NASA, Veggie fact sheet (PDF)](https://www.nasa.gov/wp-content/uploads/2019/04/veggie_fact_sheet_508.pdf); NASA technical report on the VEG-01 'Outredgeous' red romaine tests ([NTRS 20160004060](https://ntrs.nasa.gov/citations/20160004060)) |
+| **Phase 4 (journal, Radiation Protection):** Curiosity's RAD measured less radiation next to a tall cliff that blocked part of the sky | [NASA, How NASA's Curiosity Rover Is Making Mars Safer for Astronauts](https://www.nasa.gov/missions/mars-science-laboratory/how-nasas-curiosity-rover-is-making-mars-safer-for-astronauts/) |
+| **Phase 4 (journal, Communications):** commands take between about 3 and 22 minutes to reach Perseverance | [NASA Science, Speaking Percy's Language: How to Talk so Perseverance Will Listen](https://science.nasa.gov/missions/mars-2020-perseverance/speaking-percys-language-how-to-talk-so-perseverance-will-listen/) |
+| **Phase 4 (journal):** hematite blueberries, ice under the ground, the Mars Relay Network | The Phase 1 and Phase 3 sources above, reused |
 
 Game rules (power needing three clean panels, part costs, the 88-minute signal, Ares Station, rover R-2) are fiction.
 
@@ -79,6 +96,15 @@ acoustic sensor that "hears" Laika's bark through her suit radio, and the Headla
 *Simplified gameplay rules:* the research circuit (one missing coupling stops everything downstream), turning
 relay dishes to match a plaque, and the scanner following a radio signal. *Alternate history:* everything about
 Laika being on Mars, the station crew and the signal.
+
+**Phase 4, what is real and what is not.** Every Science Journal entry has a *real science* part (the rows marked
+Phase 4 above, checked on 2026-11-26) and an *In the game* note that says what is invented. *Fictional
+technology and numbers:* power units (PU), battery units (BU) and suit energy (SE) are made-up game units, as are
+all generation, demand, capacity and growth-time values; the shelter monitor's "Outside 7, Inside 2" readings are
+fictional game units; the recharge posts, the suit's boosted jump, the probes that "hear" Laika's bark through her
+suit radio, the melt-line coupling and the one-minute lettuce crop are game simplifications. *Simplified rules:*
+life support can never be switched off at the console, the dust haze lowers sunlight by a fixed fraction, and a
+tail sweep clears a panel.
 
 ## The real Laika
 

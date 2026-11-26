@@ -154,7 +154,109 @@ const RAW: Record<ItemId, Grid> = {
     "...dddddd...",
     "............",
   ],
+  // Phase 4 mission items.
+  regulator: [
+    "............",
+    "....yyyy....",
+    "..dddddddd..",
+    ".dmmmmmmmmd.",
+    ".dmbbmmyymd.",
+    ".dmbbmmyymd.",
+    ".dmmmmmmmmd.",
+    ".dmrrrrrrmd.",
+    ".dmmmmmmmmd.",
+    "..dddddddd..",
+    "...d....d...",
+    "............",
+  ],
+  recyclerPart: [
+    "............",
+    "....dddd....",
+    "...dssssd...",
+    "..dsbbbbsd..",
+    "..dsbBBbsd..",
+    "..dsbBBbsd..",
+    "..dsbbbbsd..",
+    "..dssssssd..",
+    "...dmmmmd...",
+    "....dmmd....",
+    ".....dd.....",
+    "............",
+  ],
+  waterCoupling: [
+    "............",
+    "............",
+    ".dd......dd.",
+    ".dmd....dmd.",
+    ".dmmddddmmd.",
+    ".dmbbbbbbmd.",
+    ".dmbBBBBbmd.",
+    ".dmmddddmmd.",
+    ".dmd....dmd.",
+    ".dd......dd.",
+    "............",
+    "............",
+  ],
+  seeds: [
+    "............",
+    "...dddddd...",
+    "..dccccccd..",
+    "..dcgggccd..",
+    "..dcgGgccd..",
+    "..dccgcccd..",
+    "..dckkkkcd..",
+    "..dcKkKkcd..",
+    "..dckkkkcd..",
+    "..dccccccd..",
+    "...dddddd...",
+    "............",
+  ],
+  powerCell: [
+    "............",
+    ".....ss.....",
+    "...dddddd...",
+    "...dyyyyd...",
+    "...dyYYyd...",
+    "...dyyYyd...",
+    "...dyYyyd...",
+    "...dyyyyd...",
+    "...dmmmmd...",
+    "...dmmmmd...",
+    "...dddddd...",
+    "............",
+  ],
 };
+
+/** Phase 4: science journal category icons (same palette and outline as the item icons). */
+const SCI_RAW: Record<string, Grid> = {
+  sci_geology: ["............", "............", "....pppp....", "...ppPpppp..", "..ppppPPppp.", ".pPppppppPp.", ".ppppPpppppp", ".pppppppPpp.", "..pPpppppp..", "...ppppp....", "............", "............"],
+  sci_water: ["............", ".....b......", ".....b......", "....bbb.....", "....bBb.....", "...bbBbb....", "...bBBBb....", "..bbBwBbb...", "..bBBBBBb...", "...bBBBb....", "....bbb.....", "............"],
+  sci_solar: ["............", ".....y......", "..y..y..y...", "...yyyyy....", "..yyYYYyy...", "yyyYYYYYyyy.", "..yyYYYyy...", "...yyyyy....", "..y..y..y...", ".....y......", "............", "............"],
+  sci_storage: ["............", "....dddd....", "..dddddddd..", "..dggggggd..", "..dggggggd..", "..dGGGGGGd..", "..dGGGGGGd..", "..dmmmmmmd..", "..dmmmmmmd..", "..dddddddd..", "............", "............"],
+  sci_life: ["............", "....bbbb....", "...b....b...", "..b..bb..b..", "..b.b..b.b..", "..b.b..b.b..", "..b..bb..b..", "...b....b...", "....bbbb....", "...b......b.", "............", "............"],
+  sci_plants: ["............", ".....g......", "....gGg.....", "...gGgGg....", "....gGg.g...", "..g..g.gG...", "..Gg.g.g....", "...gGgg.....", ".....g......", "..kkkkkkk...", "...kKKKk....", "............"],
+  sci_radiation: ["............", "...dddddd...", "..dssssssd..", "..dsyyyysd..", "..dsyddysd..", "..dsyddysd..", "..dsyyyysd..", "...dssssd...", "....dssd....", ".....dd.....", "............", "............"],
+  sci_comms: ["............", "..........s.", ".........s..", "....ddd.s...", "...dmmmd....", "..dmsssmd...", "..dmsssmd...", "...dmmmd....", "....dmd.....", "....dmd.....", "...ddddd....", "............"],
+};
+
+export const SCI_ICONS: Record<string, Grid> = Object.fromEntries(Object.entries(SCI_RAW).map(([k, g]) => [k, outline(g, "N", new Set())]));
+
+export function drawGrid(g: Grid, scale = 1): HTMLCanvasElement {
+  const { canvas, ctx } = makeCanvas(g[0].length * scale, g.length * scale);
+  const p = new Painter(ctx);
+  for (let y = 0; y < g.length; y++)
+    for (let x = 0; x < g[y].length; x++) {
+      const ch = g[y][x];
+      if (ch !== "." && PAL[ch]) p.rect(x * scale, y * scale, scale, scale, PAL[ch]);
+    }
+  return canvas;
+}
+
+/** Data URL of a science category icon, for the HTML journal. */
+export function sciIconUrl(key: string): string {
+  if (!urlCache.has(key)) urlCache.set(key, drawGrid(SCI_ICONS[key] ?? SCI_ICONS.sci_geology, 1).toDataURL());
+  return urlCache.get(key)!;
+}
 
 export const ICONS: Record<ItemId, Grid> = Object.fromEntries(
   Object.entries(RAW).map(([k, g]) => [k, outline(g, "N", new Set())]),

@@ -23,8 +23,17 @@ const opened = withCleared(base, HATCH_TILES);
 const full = withCleared(withBridge(opened), STATION_DOOR_TILES);
 const spawn: [number, number] = [SPAWN.col, SPAWN.row - 1];
 
+/**
+ * Reachable cells from the campaign spawn. Phase 4: the habitat door is a staircase to the Outpost
+ * Lower Level (a same-map passage the grid solver cannot see), so once the habitat is reachable,
+ * everything reachable from the stairs' arrival point counts too, and vice versa.
+ */
 function reach(g: WorldGrid, jump: JumpAbility = BASIC_JUMP) {
-  return reachableFrom(g, spawn[0], spawn[1], jump);
+  const r = reachableFrom(g, spawn[0], spawn[1], jump);
+  const habitat = standCellFor(g, 61, 24);
+  const lower = standCellFor(g, 62, 31);
+  if (habitat && lower && r.has(cellKey(...habitat))) for (const c of reachableFrom(g, lower[0], lower[1], jump)) r.add(c);
+  return r;
 }
 
 describe("world layout", () => {

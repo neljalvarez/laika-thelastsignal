@@ -129,6 +129,18 @@ export class WorldMapUI {
         const p = pos(o.id);
         if (p) box.append(svg("text", { x: p[0] - 0.7, y: p[1] + 0.6, class: "map-sym cp" }, "▲"));
       }
+      // Phase 4: recharge posts Laika has seen (a crossed bolt = not working yet).
+      if (s.flags.m4Briefed) {
+        for (const o of def.objects) {
+          if (o.kind !== "recharge" || !objSeen(o.id)) continue;
+          const p = pos(o.id);
+          if (!p) continue;
+          const dead = !!o.broken && !s.flags.canyonPostFixed;
+          const t = svg("text", { x: p[0] - 0.7, y: p[1] + 0.6, class: `map-sym rc${dead ? " dead" : ""}` }, dead ? "ϟ×" : "ϟ");
+          t.append(svg("title", {}, dead ? "Recharge post (needs repair)" : "Recharge post"));
+          box.append(t);
+        }
+      }
     }
 
     // Connections: drawn once one end has been seen. Open shortcuts are green and solid.
@@ -180,7 +192,7 @@ export class WorldMapUI {
 
     const legend = document.createElement("p");
     legend.className = "map-legend";
-    legend.textContent = "● Laika   ★ Mission   ▲ Checkpoint   ◆ Landmark   ? Unexplored   ━ green: shortcut   ╌ dashed: locked";
+    legend.textContent = `● Laika   ★ Mission   ▲ Checkpoint   ${s.flags.m4Briefed ? "ϟ Recharge   " : ""}◆ Landmark   ? Unexplored   ━ green: shortcut   ╌ dashed: locked`;
     const goal = document.createElement("p");
     goal.className = "map-goal";
     goal.textContent = `★ ${v.objective}`;

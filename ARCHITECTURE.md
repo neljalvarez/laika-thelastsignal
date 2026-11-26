@@ -32,6 +32,8 @@ src/
       frozenDepths.ts Region 04 (terrain ops, objects, sections, landmarks, lights, cables, doors)
       echoRidge.ts    Region 05
       registry.ts     MAPS, CONNECTIONS (freight lift, survey lift, North Access, cable car), global object lookup
+    engineering.ts    Phase 4: facilities, consumers, demand, criticality, and EVERY balance value (ENGINEERING, SUIT)
+    science.ts        Phase 4: Science Journal categories and entries (real science, fiction note, source)
   systems/            PURE TypeScript simulation (no Phaser, no DOM) - unit-tested
     state.ts          GameState (what is saved) + derived helpers (isPowered)
     interactions.ts   getInteraction() / performInteraction() -> Effect[]; barkEffects()
@@ -39,6 +41,11 @@ src/
     tutorial.ts       Mission 00 state machine over facts (moved, revealed, repaired...); isolated practice items
     effects.ts        Effect / WorldEvent / Interaction types shared by interactions.ts and puzzles.ts
     puzzles.ts        Phase 3 interactions: Headlamp, light sensor, circuit, drill, relays, acoustic sensor
+    engineering.ts    Phase 4: power (generation, battery, distribution, brownout), greenhouse growth,
+                      stepEngineering() and the fixed-step EngineClock
+    survival.ts       Phase 4: suit energy costs, air-jump limits, scanner fallback, recharge, SuitReserve
+    facilities.ts     Phase 4: base interactions (checked FIRST by interactions.ts), LIGHTS OUT, Mission 04 finale,
+                      science unlocks
     regions.ts        sections, discovery, open connections, routeTo() (cross-map hints), transit interactions
     hints.ts          adaptive hint levels driven by lack of progress; jump-struggle detection
     animState.ts      locomotion animation choice + idle personality state machine
@@ -63,12 +70,17 @@ src/
                       effects, practice / echo sensor / rover visuals
     SniffFx.ts        pulse ring, pings, direction arrows, tracking rhythm and chevrons, located sparkle
     Lighting.ts       darkness overlay for dark maps: one screen-sized RenderTexture, banded light stamps
+    facilityLook.ts   Phase 4, pure: which texture each machine shows, room darkness, surface look (unit-tested)
+    BaseView.ts       Phase 4: lower-level signs, lamps, status lights, room dimming, pipes/cables with flow,
+                      greenhouse dome, vent steam, beacon light, LIGHTS OUT haze tint
   scenes/             BootScene (generate art) -> TitleScene -> GameScene (orchestrator)
   ui/                 UI.ts (HUD, objective panel, signal meter, captions, transmissions, menus, controls,
                       settings, touch) + TutorialUI.ts (stage card, assist offer, mission title cards)
-                      + WorldMapUI.ts (survey-journal world map, HTML/SVG) + ui.css
+                      + WorldMapUI.ts (survey-journal world map, HTML/SVG) + BaseUI.ts (Phase 4: suit meter,
+                      power chip, base status simple/detailed, power console, Science Journal) + ui.css
 tests/                Vitest: world validation, mission, saves, movement, settings/sniff/inventory, tutorial, phase2
-playtest/             Python + Playwright browser play-tests (playthrough.py = Phase 1 route, phase2.py = A-H)
+playtest/             Python + Playwright browser play-tests (playthrough.py = Phase 1 route, phase2.py = A-H,
+                      phase3.py = A-K, phase4.py = A-M)
 ```
 
 ## Data flow (one frame)
@@ -87,6 +99,46 @@ GameScene ── ObjectsView.findTarget() ── getInteraction()  ──> UI.se
 - **No per-frame UI work.** The HTML overlay is updated only on change (prompt key, objective key, inventory).
 - **Derived, not stored.** The objective, "powered", and receiver states are computed from flags, so saves cannot
   drift out of sync with the UI.
+
+## Engineering simulation (Phase 4)
+
+```
+                    sunFactor (1, or the haze fraction)        Survival Assistance (settings.survival)
+                              │                                          │
+  solar panels (clean=5 PU, dusty=1 PU) ──> generation ──┐               │ capacity, haze, suit costs
+                                                         ▼               ▼
+  wanted consumers (restored + allocation) ──> computePower(s, mode) ──> PowerStatus { gen, use, net, battery,
+         habitat 2 · lifeSupport 3 · shelter 1 (critical)                    powered, brownout, trend, haze }
+         water 1 · greenhouse 3 · research 2 (optional)                             │
+                                                         stepEngineering(s, mode, 250 ms)
+                                 battery += net × batteryRate × dt (clamped 0..capacity) · plants grow if lit,
+                                 watered and powered · events: batteryEmpty / stage:n / brownout:x / restored:x
+```
+
+- **Pure and data-driven.** Every number lives in `data/engineering.ts` (`ENGINEERING`, `SUIT`); the tests read
+  those values, so tuning never silently breaks them. Units (PU, BU, SE) are fictional and the UI says so.
+- **Critical systems are protected.** Habitat, life support and shelter are not in the distribution choice at all.
+  When the battery is empty and the sun is not enough, optional systems drop in `BROWNOUT_ORDER` (greenhouse,
+  research, water) until the rest fits; they come back by themselves.
+- **Lower-level bus.** Machines below ground run only once the battery station is restored; the receiver and
+  workstation (research) keep running on sunlight, so Missions 01–03 behave exactly as before.
+- **Timing.** `EngineClock.advance(delta)` accumulates real frame time, clamps a long gap to
+  `maxStepsPerFrame` steps (4 × 250 ms), and runs whole steps only: identical results at 30, 60 or 144 fps.
+  `GameScene` only advances it during free play: not in menus or panels (the scene is paused), transmissions,
+  camera focus, map travel or Mission 00. A hidden tab opens the pause menu. The clock is never saved, so nothing
+  happens while the game is closed. Cost: about 25 µs per step (4 steps per second).
+- **Suit energy.** `survival.ts` decides costs per mode; `Player.airJumpLimit` asks it before each air jump, so a
+  jump the suit cannot pay for simply does not fire (the boost is the second air jump and only exists from
+  Mission 04). `SuitReserve` refills to a safe floor after a few seconds without spending (Relaxed: to full).
+  Sniffing is always allowed: with too little energy the scan works at 55 % range.
+- **Interactions.** `facilities.ts` answers first for Phase 4 objects (and for the beacon, habitat, battery,
+  panels and drill once Mission 04 changes their meaning), then the Phase 1 switch, then `puzzles.ts`. New effects:
+  `stairs` (the habitat ladder: a fade and a teleport, no map change), `ui` (open base status or the power console)
+  and `science` (a journal entry unlocked; `performInteraction` calls `syncScience` after every interaction).
+- **Visible transformation.** `facilityLook.ts` maps state → texture keys, room darkness and the surface look;
+  `ObjectsView.syncBase` and `BaseView.sync` apply them every engine step, so the base changes as it works (rooms
+  light up, the recycler fan turns, pipes flow, the dome fills with plants). Tests check that every texture the
+  look module can name exists.
 
 ## Multi-map world (Phase 3)
 
@@ -179,6 +231,14 @@ GameScene.onTutorialAdvance ──> TutorialUI.show(stage, {device, keys}) + hig
   (later milestones imply earlier ones; the comms module is restored if lost; solar parts topped up if the world can
   no longer supply them). Corrupt or future-version saves are backed up and the title screen says so.
 - Autosave on checkpoints, pickups, repairs, pause, tab hide and every 20 s.
+- **Version 4 (Phase 4).** Adds `eng: { battery, alloc { water, greenhouse, research }, growMs, suit, dusty }`,
+  `science: string[]`, 26 Mission 04 flags and five items (regulator, pump cartridge, melt-line coupling, seeds,
+  power cell). `migrate` v3 → v4 adds a fresh engineering block (battery 0, everything allowed, suit full) and an
+  empty journal; v1 and v2 chain through v3. `sanitize` clamps every engineering number to its range and drops
+  unknown panels and journal ids. `repairState` now runs until nothing changes (at most 4 passes): later
+  milestones imply earlier ones, a mission item that was used is never given back and one that is needed is never
+  lost, the battery is 0 until restored, the dust list only exists between "balanced" and "done", and journal
+  entries are re-derived from achievements.
 - **Version 3 (Phase 3).** Adds `abilities.headlamp`, `discovered: { maps, sections, landmarks }` and
   `puzzles: { relayAim }`, plus new flags and items (coupling, relay cell, recordings, rover parts). `migrate`
   v2 → v3 sets the Headlamp to false, the map to "surface" and relays to their start directions; v1 saves go
@@ -202,7 +262,9 @@ GameScene.onTutorialAdvance ──> TutorialUI.show(stage, {device, keys}) + hig
 - **New ability:** add an `AbilityId`, unlock it from an effect, and read it in `Player` / `stepMovement`
   (see `thrusters` for a complete example: recipe → effect → texture swap → air jump).
 - **New mission:** write another `getObjective`-style function over new flags; add `FlagId`s and a save
-  migration step (bump `STATE_VERSION`, now 2, and add a case in `migrate`).
+  migration step (bump `STATE_VERSION`, now 4, and add a case in `migrate`).
+- **New facility (Phase 4):** add it to `FACILITIES` (demand, critical, dependsOn), give `isRestored` a rule, add a
+  `FacilityPart`, its rules in `facilities.ts`, textures in `art/baseProps.ts` and a case in `facilityLook.ts`.
 - **New tutorial stage:** add an id to `TutorialStageId` and `STAGE_ORDER`, a `TutorialStageDef` in
   `data/tutorial.ts` (instructions for each device, `done(facts)`, hint), any new fact + event in
   `systems/tutorial.ts`, and a test in `tests/tutorial.test.ts`.
@@ -210,7 +272,13 @@ GameScene.onTutorialAdvance ──> TutorialUI.show(stage, {device, keys}) + hig
 
 ## Testing
 
-- `npm test`: 141 unit tests (Phase 3 adds `regions.test.ts` and `phase3.test.ts`: region registration, unique
+- `npm test`: 195 unit tests. Phase 4 adds `phase4.test.ts` (42: solar, battery charge/discharge/capacity,
+  distribution and protected critical systems, facility dependencies, recycler, water, greenhouse, suit energy,
+  recharging, zero-energy recovery, Survival Assistance, fixed-step timing and clamping, no offline or paused
+  progress, Mission 04 in two orders, LIGHTS OUT in every mode, v1/v2/v3 → v4 migration, corrupted engineering
+  data, saving mid-event, duplicate/lost mission items, the reserve always pays for one jump, emptied part sources) and `phase4nav.test.ts` (12: lower level reachable through
+  the ladder with basic jumps, Challenges B/C need the boosted jump and have no dead ends, ladders not crowded, the visible base look).
+  Earlier phases (Phase 3 adds `regions.test.ts` and `phase3.test.ts`: region registration, unique
   ids, connection endpoints, region-graph connectivity, per-map reachability with and without Thruster Boots,
   puzzle progression and idempotency, both missions on the pure rules, cross-map hint routing, discovery, v1/v2 →
   v3 migration, invalid region recovery, interrupted transitions, item loss and duplication), including a full mission playthrough on the pure rules, save corruption/migration/
@@ -220,4 +288,4 @@ GameScene.onTutorialAdvance ──> TutorialUI.show(stage, {device, keys}) + hig
   device prompts), hints, animation states and gait phases.
 - Browser play-tests run in headless Chrome with Playwright driving real keyboard and touch input:
   `playtest/playthrough.py` (Phase 1 route), `playtest/phase2.py` (Phase 2 scenarios A–H) and
-  `playtest/phase3.py` (Phase 3 scenarios A–K). See the handoffs.
+  `playtest/phase3.py` (Phase 3 scenarios A–K) and `playtest/phase4.py` (Phase 4 scenarios A–M). See the handoffs.

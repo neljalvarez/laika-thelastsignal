@@ -32,8 +32,16 @@ import { createNewState, isPowered, type GameState } from "../systems/state";
 import { createTutorial, getPracticeInteraction, performPracticeInteraction, tutorialEvent, type TutorialState } from "../systems/tutorial";
 import { buildMap, buildWorld } from "../systems/worldBuilder";
 import { TutorialUI } from "../ui/TutorialUI";
+// ---- Phase 4 ----
+import { BaseView } from "../game/BaseView";
+import { OPTIONAL_SYSTEMS, type OptionalSystem, type SurvivalMode } from "../data/engineering";
+import { scienceEntry, type ScienceCategory } from "../data/science";
+import { clampEng, computePower, EngineClock, STAGE_NAMES, stepEngineering, type EngineEvent, type PowerStatus } from "../systems/engineering";
+import { completeMission04, lightsOutReady, markReturned, setAllocation, startLightsOut } from "../systems/facilities";
+import { airJumpLimit, airJumpUse, canUse, scanRadiusFactor, spend, suitActive, SuitReserve } from "../systems/survival";
+import { BaseHud, baseStatusCard, distributionCard, scienceCard } from "../ui/BaseUI";
 
-type MenuMode = "none" | "pause" | "settings" | "confirm" | "complete" | "controls" | "map";
+type MenuMode = "none" | "pause" | "settings" | "confirm" | "complete" | "controls" | "map" | "base";
 
 /** Global lookup that never fails (falls back to the ship's checkpoint). */
 const objectById = (id: string): WorldObject | undefined => findObject(id);
@@ -60,6 +68,15 @@ function tutorialUI(): TutorialUI {
   return tutUI;
 }
 
+let baseHudEl: BaseHud | null = null;
+function baseHud(): BaseHud {
+  if (!baseHudEl) {
+    baseHudEl = new BaseHud();
+    svc().ui.mountHud(baseHudEl.el);
+  }
+  return baseHudEl;
+}
+
 const CRATE_LEFT_X = 11 * TILE;
 const UPPER_DECK_FLOOR_Y = 14 * TILE;
 
@@ -83,7 +100,7 @@ export class GameScene extends Phaser.Scene {
   private lastX = 0;
   private hints: HintState = createHints();
   private struggle: StruggleState = createStruggle();
-  private tracking: { until: number; lastDist: number | null; lastTrendAt: number; trend: "warmer" | "colder" | "steady"; nextPing: number; found: boolean } | null = null;
+  private tracking: { until: number; lastDist: number | null; lastTrendAt: number; trend: "warmer" | "colder" | "steady"; nextPing: number; found: boolean; radius: number } | null = null;
   private target: { o: WorldObject; i: Interaction } | null = null;
   private promptKey = "";
   private regionId = "";
@@ -108,6 +125,19 @@ export class GameScene extends Phaser.Scene {
   private arrivalFacing: 1 | -1 = 1;
   private discoverAt = 0;
   private settingsListener = (s: Settings) => this.onSettings(s);
+  // ---- Phase 4: engineering simulation, suit energy and base visuals ----
+  private engClock = new EngineClock();
+  private reserve = new SuitReserve();
+  private baseView: BaseView | null = null;
+  private power!: PowerStatus;
+  private animFrame: 0 | 1 = 0;
+  private engSteps = 0;
+  private baseDetailed = false;
+  private sciCategory: ScienceCategory = "geology";
+  private sciOpen: string | null = null;
+  private lightsOutAt = 0;
+  private finaleAt = 0;
+  private lowSuitWarnAt = -99999;
   private visibilityListener = () => {
     if (document.hidden && this.menu === "none" && !svc().ui.transmissionOpen) this.openPause();
     if (document.hidden) this.save();
@@ -174,6 +204,11 @@ export class GameScene extends Phaser.Scene {
       for (const g of this.objects.glintPoints) this.lighting.addGlint(g.x, g.y);
     }
     this.player.setBoots(this.state.abilities.thrusters);
+    this.player.airJumpLimit = (used) => (this.tutorial ? 1 : airJumpLimit(this.state, this.mode(), used));
+    if (this.mapDef.id === "surface") this.baseView = new BaseView(this, () => svc().settings.reducedMotion);
+    this.engClock.reset();
+    clampEng(this.state, this.mode());
+    this.syncBase();
     this.player.assist = settings.assistJumps;
     this.player.reducedMotion = settings.reducedMotion;
     this.player.onSound = (name, opts) => audio.sfx(name, opts);
@@ -222,6 +257,8 @@ export class GameScene extends Phaser.Scene {
       input.onMap = null;
       this.lighting?.destroy();
       this.lighting = null;
+      this.baseView?.destroy();
+      this.baseView = null;
     });
     input.onMap = () => this.toggleMap();
     ui.onMapButton = () => this.toggleMap();
@@ -295,6 +332,9 @@ export class GameScene extends Phaser.Scene {
     this.player.reducedMotion = s.reducedMotion;
     this.sniffFx.reducedMotion = s.reducedMotion;
     this.camCtl.reducedMotion = s.reducedMotion;
+    // Survival Assistance can change at any time: clamp the battery to the new capacity.
+    clampEng(this.state, s.survival);
+    this.syncBase();
     this.renderTutorialCard();
   }
 
@@ -316,6 +356,9 @@ export class GameScene extends Phaser.Scene {
     }
     const locked = blocking || this.camCtl.focusing || time < this.lockedUntil || tutorialUI().cardsShowing;
     this.state.playTimeMs += delta;
+    // Phase 4: the base simulation runs only during free play (never in menus, transmissions,
+    // camera focus, travel or Mission 00), on a fixed step that clamps big frame gaps.
+    if (!locked && !ui.transmissionOpen && !this.tutorial && !this.transitioning) this.tickEngineering(delta);
 
     const t = this.tutorial;
     const carryingModule = this.state.inventory.commsModule > 0 && !this.state.flags.moduleInstalled && !t;
@@ -329,12 +372,13 @@ export class GameScene extends Phaser.Scene {
       },
     });
     this.safety();
+    this.suitJumps(events, frame.jumpPressed, time);
     this.trackJumps(events, time);
     if (t) this.tutorialTick(delta, time);
 
     if (!t) {
       for (const o of this.objects.touchingPickups(this.player.x, this.player.centerY, this.state)) {
-        this.applyEffects(performInteraction(o, this.state, { revealed: this.objects.revealed }), o);
+        this.applyEffects(performInteraction(o, this.state, { revealed: this.objects.revealed, mode: this.mode() }), o);
       }
     }
 
@@ -364,6 +408,7 @@ export class GameScene extends Phaser.Scene {
       { underground: this.world.isUnderground(this.player.x, this.player.feetY - 8), interestX: target ? objectPos(target.o).x : null },
     );
     this.world.updateParallax(this.cameras.main);
+    this.baseView?.update(delta, this.player.feetY > 25 * TILE);
     if (this.lighting) {
       this.lighting.update(this.cameras.main, {
         x: this.player.x,
@@ -379,6 +424,7 @@ export class GameScene extends Phaser.Scene {
     if (!t && time >= this.discoverAt) {
       this.discoverAt = time + 250;
       this.discoverHere(false);
+      if (!locked) this.phase4Checks(time);
     }
 
     if (this.readFrom && ui.readOpen && Math.abs(this.player.x - this.readFrom.x) > 70) {
@@ -399,7 +445,7 @@ export class GameScene extends Phaser.Scene {
   private interactionFor(o: WorldObject): Interaction | null {
     if (PRACTICE_IDS.has(o.id)) return this.tutorial ? getPracticeInteraction(o, this.tutorial) : null;
     if (this.tutorial) return null; // the campaign is untouched while training
-    return getInteraction(o, this.state, { revealed: this.objects.revealed });
+    return getInteraction(o, this.state, { revealed: this.objects.revealed, mode: this.mode() });
   }
 
   private interact(o: WorldObject): void {
@@ -409,7 +455,7 @@ export class GameScene extends Phaser.Scene {
       this.applyEffects(effects, o);
       this.onTutorialAdvance(completed);
     } else {
-      this.applyEffects(performInteraction(o, this.state, { revealed: this.objects.revealed }), o);
+      this.applyEffects(performInteraction(o, this.state, { revealed: this.objects.revealed, mode: this.mode() }), o);
     }
     this.promptKey = "#refresh";
   }
@@ -702,12 +748,24 @@ export class GameScene extends Phaser.Scene {
     }
     if (now - this.lastSniff < SNIFF_COOLDOWN_MS) return;
     this.lastSniff = now;
+    // Phase 4: a scan uses a little suit energy. With too little, Laika still sniffs, just closer.
+    let radius = 1;
+    if (!this.tutorial && suitActive(this.state)) {
+      const mode = this.mode();
+      radius = scanRadiusFactor(this.state, mode);
+      if (spend(this.state, "scan", mode)) this.reserve.used();
+      else if (now - this.lowSuitWarnAt > 6000) {
+        this.lowSuitWarnAt = now;
+        ui.caption("Low suit energy: short-range sniff");
+      }
+      this.syncBase();
+    }
     this.player.doAction("sniff", now);
     audio.sfx("sniff", { pitch: 0.95 + Math.random() * 0.1 });
     this.time.delayedCall(200, () => audio.sfx("pulse"));
     this.sniffFx.burst(this.player.x, this.player.feetY - 6, now);
     // Keep tracking the nearest signal for a while: no need to keep pressing the button.
-    this.tracking = { until: now + 6000, lastDist: null, lastTrendAt: now, trend: "steady", nextPing: now + 250, found: false };
+    this.tracking = { until: now + 6000, lastDist: null, lastTrendAt: now, trend: "steady", nextPing: now + 250, found: false, radius };
   }
 
   private currentTargets() {
@@ -727,9 +785,9 @@ export class GameScene extends Phaser.Scene {
       return;
     }
     const boost = this.hints.level >= 2 ? 1.6 : 1;
-    const dets = detect(px, py, this.currentTargets(), SNIFF_RADIUS, SNIFF_REVEAL_RADIUS, boost);
+    const dets = detect(px, py, this.currentTargets(), SNIFF_RADIUS * tr.radius, SNIFF_REVEAL_RADIUS, boost);
     const near = dets[0] ?? null;
-    const level: SignalLevel = near ? signalLevel(near.dist, SNIFF_REVEAL_RADIUS, SNIFF_RADIUS * boost) : "none";
+    const level: SignalLevel = near ? signalLevel(near.dist, SNIFF_REVEAL_RADIUS, SNIFF_RADIUS * boost * tr.radius) : "none";
     if (now - tr.lastTrendAt > 300) {
       tr.trend = trend(tr.lastDist, near?.dist ?? null);
       if (tr.trend === "warmer") tr.until = Math.max(tr.until, now + 3000);
@@ -780,6 +838,15 @@ export class GameScene extends Phaser.Scene {
   }
 
   private doBark(): void {
+    // Phase 4: barking next to a radiation probe takes its reading (same as pressing E there).
+    for (const o of this.mapDef.objects) {
+      if (o.kind !== "facility" || (o.part !== "probeOut" && o.part !== "probeIn")) continue;
+      const p = objectPos(o);
+      if (Math.abs(p.x - this.player.x) < 40 && Math.abs(p.y - this.player.feetY) < 30 && this.interactionFor(o)) {
+        this.interact(o);
+        return;
+      }
+    }
     let near: WorldObject | null = null;
     for (const o of this.mapDef.objects) {
       if (o.kind !== "echoSensor" && o.kind !== "rover" && o.kind !== "acousticSensor") continue;
@@ -902,7 +969,8 @@ export class GameScene extends Phaser.Scene {
           this.openTransmission(e.id, true);
           break;
         case "tip":
-          ui.showTip(TIPS[e.key]);
+          // Phase 4 gameplay tips are labelled "Tip"; the rest are short science notes.
+          ui.showTip(TIPS[e.key], ["recharge", "suitLow", "priority"].includes(e.key) ? "Tip" : "Science");
           break;
         case "anim": {
           const ox = objectPos(o).x;
@@ -946,6 +1014,27 @@ export class GameScene extends Phaser.Scene {
         case "travel":
           this.travel(e.connection, e.map as MapId, e.arrive);
           break;
+        // ---- Phase 4 ----
+        case "stairs":
+          this.goStairs(e.to);
+          break;
+        case "ui":
+          this.time.delayedCall(180, () => this.openBasePanel(e.panel));
+          break;
+        case "science": {
+          const entry = scienceEntry(e.id);
+          if (entry) {
+            this.time.delayedCall(900, () => {
+              ui.toast(`Science journal: "${entry.title}" added.`, "info");
+              audio.sfx("click");
+            });
+            if (!this.state.seen.includes("tip:science")) {
+              this.state.seen.push("tip:science");
+              this.time.delayedCall(2600, () => ui.showTip("New science journal entries wait in the Pause menu, under Science journal. Read them any time.", "Tip"));
+            }
+          }
+          break;
+        }
       }
     }
     if (!this.tutorial) {
@@ -1113,7 +1202,341 @@ export class GameScene extends Phaser.Scene {
       case "mission03Complete":
         this.time.delayedCall(800, () => this.showMission03Complete());
         break;
+      // ---------------- Phase 4 ----------------
+      case "m4Brief":
+        ui.setAbilities(this.state.abilities);
+        this.syncBase();
+        break;
+      case "batteryRestored":
+        audio.sfx("power");
+        ui.caption("Battery bank humming: the lower level wakes up");
+        this.objects.sparklesFor("battery");
+        break;
+      case "recyclerFixed":
+        audio.sfx("repair");
+        ui.caption("Click! Pump cartridge seated");
+        this.objects.sparklesFor(objectId);
+        break;
+      case "recyclerPowered":
+      case "growPowered":
+        audio.sfx("power", { pitch: 1.15 });
+        ui.caption("Power box on");
+        break;
+      case "recyclerOn":
+        audio.sfx("power");
+        this.time.delayedCall(300, () => audio.sfx("mech", { pitch: 0.7 }));
+        ui.caption("Recycler whirring: fresh air flowing");
+        break;
+      case "waterOn":
+        audio.sfx("mech");
+        ui.caption("Gurgle... water flowing through the pipes");
+        break;
+      case "valveOpen":
+        audio.sfx("mech", { pitch: 1.3 });
+        ui.caption("Squeak! Water trickles into the tray");
+        break;
+      case "planted":
+        audio.sfx("dig", { pitch: 1.2 });
+        ui.caption("Seeds tucked into the soil");
+        break;
+      case "growLights":
+        audio.sfx("power", { pitch: 1.3 });
+        ui.caption("Grow lights glowing pink and blue");
+        break;
+      case "harvest":
+        audio.sfx("collectBig");
+        ui.caption("Crunch! Fresh lettuce from the greenhouse");
+        this.objects.sparklesFor(objectId);
+        break;
+      case "shelterAwake":
+        audio.sfx("beepTune");
+        ui.caption("Shelter monitor beeps awake");
+        break;
+      case "probeRead":
+        this.time.delayedCall(350, () => audio.sfx("checkpoint"));
+        ui.caption("Probe beep: reading taken");
+        break;
+      case "shelterOn":
+        audio.sfx("door");
+        ui.caption("Shelter ready: the walls block most of the radiation");
+        break;
+      case "rest":
+        this.player.doAction("celebrate", this.time.now);
+        ui.caption("Laika curls up on her mat... suit recharged");
+        audio.sfx("woof", { pitch: 0.8, volume: 0.5 });
+        this.syncBase();
+        break;
+      case "recharge":
+        this.objects.chargeFlash(objectId, settings.reducedMotion);
+        audio.sfx("power", { pitch: 1.4 });
+        ui.caption("Bzzt! Suit energy full");
+        this.reserve.used();
+        this.syncBase();
+        break;
+      case "postFixed":
+        audio.sfx("repair");
+        ui.caption("Recharge post working again");
+        this.objects.sparklesFor(objectId);
+        break;
+      case "seismometer":
+      case "deepProbe":
+      case "telescope":
+        audio.sfx("beepTune");
+        ui.caption(ev === "seismometer" ? "Seismometer: faint marsquake wiggles" : ev === "deepProbe" ? "Deep probe: ice layer measured" : "Telescope: the northern signal, clearer");
+        this.objects.sparklesFor(objectId);
+        break;
+      case "lightsOut":
+        audio.sfx("error");
+        this.time.delayedCall(350, () => audio.sfx("power", { pitch: 0.55 }));
+        ui.caption("Power alarm! The lights dim");
+        if (!settings.reducedMotion) this.cameras.main.shake(260, 0.004);
+        ui.toast("LIGHTS OUT! A dust haze is blocking the sun. Go to the power console on the lower level.", "warn");
+        this.syncBase();
+        break;
+      case "lightsOutBalanced":
+        audio.sfx("checkpoint");
+        ui.caption("Power balanced: life support safe");
+        this.syncBase();
+        break;
+      case "lightsOutDone":
+        audio.sfx("power");
+        ui.caption("Sun on clean panels: full power again");
+        this.syncBase();
+        break;
+      case "m4Complete":
+        this.syncBase();
+        this.time.delayedCall(600, () => this.showMission04Complete());
+        break;
     }
+  }
+
+  // ------------------------------------------------------------------
+  // Phase 4: engineering, suit energy, base panels
+  // ------------------------------------------------------------------
+
+  private mode(): SurvivalMode {
+    return svc().settings.survival;
+  }
+
+  private tickEngineering(delta: number): void {
+    const mode = this.mode();
+    const n = this.engClock.advance(delta, (dt) => {
+      for (const e of stepEngineering(this.state, mode, dt).events) this.engineEvent(e);
+    });
+    const suitChanged = this.reserve.tick(this.state, mode, delta);
+    if (n > 0) {
+      this.engSteps += n;
+      if (this.engSteps >= 2) {
+        this.engSteps = 0;
+        this.animFrame = this.animFrame ? 0 : 1;
+      }
+      this.syncBase();
+    } else if (suitChanged) baseHud().update(this.state, this.power, mode);
+  }
+
+  private engineEvent(e: EngineEvent): void {
+    const { ui } = svc();
+    if (e === "batteryEmpty") {
+      ui.toast("Base battery empty. Optional systems pause until the sun catches up. Life support is safe.", "warn");
+    } else if (e.startsWith("stage:")) {
+      const n = Number(e.slice(6));
+      ui.caption(`Greenhouse: ${STAGE_NAMES[n].toLowerCase()}`);
+      if (n === 4) ui.toast("The greenhouse crop is ready to harvest!", "good");
+      this.refreshHud();
+    } else if (e.startsWith("brownout:")) {
+      ui.caption(`Low power: ${e.slice(9)} paused`);
+    }
+  }
+
+  /** Re-reads the power state and updates machines, base decor and the HUD meters. */
+  private syncBase(): void {
+    const mode = this.mode();
+    this.power = computePower(this.state, mode);
+    const frame = svc().settings.reducedMotion ? 0 : this.animFrame;
+    if (!this.tutorial) this.objects.syncBase(this.state, this.power, frame);
+    this.baseView?.sync(this.state, this.power);
+    baseHud().update(this.state, this.power, mode);
+  }
+
+  /** Thruster jumps use suit energy from Mission 04 (Laika can always walk, jump, sniff and bark). */
+  private suitJumps(events: string[], jumpPressed: boolean, now: number): void {
+    if (this.tutorial || !suitActive(this.state)) return;
+    const mode = this.mode();
+    if (events.includes("airJump")) {
+      spend(this.state, airJumpUse(this.player.move.airJumpsUsed), mode);
+      this.reserve.used();
+      baseHud().update(this.state, this.power, mode);
+      return;
+    }
+    if (!jumpPressed || this.player.move.grounded || !this.state.abilities.thrusters || events.includes("jump")) return;
+    const used = this.player.move.airJumpsUsed;
+    if (used >= 2) return;
+    if (!canUse(this.state, used === 0 ? "thrust" : "boost", mode) && now - this.lowSuitWarnAt > 4000) {
+      this.lowSuitWarnAt = now;
+      svc().ui.caption(used === 0 ? "Suit energy too low for thrusters" : "Not enough suit energy for a boost");
+      if (!this.state.seen.includes("tip:suitLow")) {
+        this.state.seen.push("tip:suitLow");
+        svc().ui.showTip(TIPS.suitLow, "Tip");
+      }
+    }
+  }
+
+  /** Arriving home, the LIGHTS OUT event and the Mission 04 finale. */
+  private phase4Checks(now: number): void {
+    if (this.tutorial || this.mapDef.id !== "surface" || this.transitioning || svc().ui.transmissionOpen) return;
+    const col = Math.floor(this.player.x / TILE);
+    const row = Math.floor((this.player.feetY - 1) / TILE);
+    const atOutpost = col >= 28 && col <= 90 && row >= 16 && row <= 31;
+    if (!atOutpost) {
+      this.lightsOutAt = 0;
+      return;
+    }
+    if (markReturned(this.state)) {
+      svc().ui.toast("Home sweet home. Check the base terminal next to the habitat.", "good");
+      this.refreshHud();
+      this.save();
+    }
+    if (lightsOutReady(this.state)) {
+      if (!this.lightsOutAt) this.lightsOutAt = now + 3500;
+      else if (now >= this.lightsOutAt) {
+        this.lightsOutAt = 0;
+        this.applyEffects(startLightsOut(this.state), objectById("dist_console")!);
+      }
+    }
+    if (this.state.flags.lightsOutDone && !this.state.flags.m4Complete && row <= 24) {
+      if (!this.finaleAt) {
+        // A short moment: Laika looks at the glowing habitat and wags; then the station calls.
+        const hx = objectPos(objectById("habitat")!).x;
+        this.player.face(hx >= this.player.x ? 1 : -1);
+        this.player.wag(now);
+        this.focusAt(hx, 22 * TILE);
+        this.finaleAt = now + 2200;
+      } else if (now >= this.finaleAt) {
+        this.finaleAt = 0;
+        this.applyEffects(completeMission04(this.state), objectById("base_terminal")!);
+      }
+    }
+  }
+
+  /** The habitat ladder between the surface and the lower level: a quick fade, no loading. */
+  private goStairs(to: [number, number]): void {
+    const { settings, audio } = svc();
+    const cam = this.cameras.main;
+    const ms = settings.reducedMotion ? 80 : 220;
+    this.lockedUntil = this.time.now + ms * 2 + 120;
+    audio.sfx("door", { pitch: 1.2, volume: 0.6 });
+    cam.fadeOut(ms, 0, 0, 0);
+    this.time.delayedCall(ms, () => {
+      this.teleport(to[0] * TILE + 8, to[1] * TILE);
+      cam.fadeIn(ms, 0, 0, 0);
+      this.regions();
+      this.discoverHere(false);
+      this.syncBase();
+    });
+  }
+
+  private openBasePanel(panel: "baseStatus" | "distribution" | "science"): void {
+    const { ui } = svc();
+    if (this.menu !== "none" || this.tutorial) return;
+    this.scene.pause();
+    this.physics.pause();
+    this.menu = "base";
+    ui.clearTouch();
+    ui.setMenuOpen(true);
+    const mode = this.mode();
+    this.power = computePower(this.state, mode);
+    const close = () => this.resume();
+    if (panel === "baseStatus") {
+      const render = () => ui.showCustom(baseStatusCard(this.state, this.power, mode, this.baseDetailed, () => {
+        this.baseDetailed = !this.baseDetailed;
+        render();
+      }, close));
+      render();
+    } else if (panel === "distribution") {
+      let draft = { ...this.state.eng.alloc } as Record<OptionalSystem, boolean>;
+      const render = () =>
+        ui.showCustom(
+          distributionCard(this.state, this.power, mode, draft, (d) => {
+            draft = { ...d };
+            for (const id of OPTIONAL_SYSTEMS) draft[id] = !!d[id];
+            render();
+          }, () => {
+            this.resume();
+            this.applyEffects(setAllocation(this.state, mode, draft), objectById("dist_console")!);
+            this.syncBase();
+            ui.toast("Power shared out.", "info");
+          }, close),
+        );
+      render();
+    } else {
+      const render = () =>
+        ui.showCustom(scienceCard(this.state, this.sciCategory, this.sciOpen, (c) => {
+          this.sciCategory = c;
+          this.sciOpen = null;
+          render();
+        }, (id) => {
+          this.sciOpen = id;
+          render();
+        }, close));
+      render();
+    }
+  }
+
+  private showMission04Complete(): void {
+    const { ui, audio } = svc();
+    audio.playMusic("ending");
+    audio.sfx("complete");
+    this.player.doAction("celebrate", this.time.now);
+    this.save();
+    let talked = false;
+    const wait = () => {
+      // The finale transmission plays first; the card follows a moment after it closes (so a
+      // player still mashing Jump/E to finish the dialogue does not dismiss the card by accident).
+      if (ui.transmissionOpen) {
+        talked = true;
+        this.time.delayedCall(400, wait);
+        return;
+      }
+      if (talked) {
+        talked = false;
+        this.time.delayedCall(700, wait);
+        return;
+      }
+      this.menu = "complete";
+      ui.setMenuOpen(true);
+      this.scene.pause();
+      this.physics.pause();
+      ui.showStoryComplete(
+        {
+          title: "MISSION 04 COMPLETE",
+          subtitle: "A Place to Call Home",
+          lines: [
+            "[x] Battery station restored",
+            "[x] Life support recycling air and water",
+            "[x] Water flowing from the Frozen Depths",
+            `[${this.state.flags.cropHarvested ? "x" : " "}] First greenhouse harvest`,
+            "[x] Radiation shelter ready",
+            "[x] LIGHTS OUT handled: life support never went down",
+            `Science journal: ${this.state.science.length} entries`,
+          ],
+          minutes: Math.max(1, Math.round(this.state.playTimeMs / 60000)),
+          epilogue: "The outpost is home now. And far to the north, the old signal is getting clearer...",
+        },
+        () => {
+          ui.closeScreen();
+          this.resume();
+          ui.toast("The outpost is home now. The northern signal is getting clearer...", "good");
+        },
+        () => {
+          this.save();
+          ui.closeScreen();
+          ui.showHud(false);
+          this.menu = "none";
+          this.scene.start("title");
+        },
+      );
+    };
+    this.time.delayedCall(900, wait);
   }
 
   /** Doors and bridges of this map that changed with the state (shutters, tower door, cache bridge). */
@@ -1428,6 +1851,10 @@ export class GameScene extends Phaser.Scene {
       this.toggleMap();
       return;
     }
+    if (this.menu === "base") {
+      this.resume();
+      return;
+    }
     if (this.menu === "none") this.openPause();
     else if (this.menu === "pause" || this.menu === "confirm") this.resume();
     else if (this.menu === "settings" || this.menu === "controls") this.openPause();
@@ -1465,6 +1892,20 @@ export class GameScene extends Phaser.Scene {
             this.resume();
             this.toggleMap();
           },
+      onBase:
+        !t && suitActive(this.state)
+          ? () => {
+              this.resume();
+              this.openBasePanel("baseStatus");
+            }
+          : undefined,
+      onScience:
+        !t && this.state.science.length > 0
+          ? () => {
+              this.resume();
+              this.openBasePanel("science");
+            }
+          : undefined,
       onCheckpoint: () => {
         this.resume();
         this.respawn("Back at the last checkpoint.");

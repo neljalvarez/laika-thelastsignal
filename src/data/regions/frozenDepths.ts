@@ -101,11 +101,21 @@ const TERRAIN: TerrainOp[] = [
   fill(T.IceLedge, 2, 4, 32, 32),
   fill(T.IceLedge, 5, 7, 34, 34),
   fill(T.IceLedge, 2, 4, 36, 36),
+  // Phase 4, Challenge B "Deep survey": the Ice Fissure, a dark crack east of the observation chamber.
+  // A low passage leads to a tall shaft: Thruster Boots reach the first ice shelf (5 tiles up), and a
+  // suit-boosted second air jump reaches the survey probe (7 tiles more). Dropping back down is
+  // always safe, and the passage leads straight back to the chamber.
+  clear(96, 113, 25, 29),
+  clear(114, 122, 15, 29),
+  back(B.Frost, 96, 122, 15, 29),
+  fill(T.IceLedge, 115, 118, 25, 25),
+  fill(T.IceLedge, 119, 122, 18, 18),
 ];
 
 const OBJECTS: WorldObject[] = [
   // ---- E: Survey Entrance ----
   { id: "cp_depths_entry", kind: "checkpoint", col: 121, row: 12, label: "Survey Entrance" },
+  { id: "recharge_depths", kind: "recharge", col: 118, row: 12, label: "survey charger" },
   {
     id: "headlamp_kit",
     kind: "headlampKit",
@@ -138,6 +148,8 @@ const OBJECTS: WorldObject[] = [
 
   // ---- C: dark chamber ----
   { id: "cp_depths_chamber", kind: "checkpoint", col: 94, row: 18, label: "Observation Chamber" },
+  { id: "recharge_fissure", kind: "recharge", col: 91, row: 30, label: "fissure charger" },
+  { id: "deep_probe", kind: "facility", part: "deepProbe", col: 121, row: 18, label: "deep survey probe" },
   { id: "light_sensor", kind: "lightSensor", col: 67, row: 20, label: "light sensor" },
   { id: "secret_alcove", kind: "secret", col: 59, row: 14, label: "false wall" },
   { id: "treat_depths", kind: "pickup", col: 54, row: 14, item: "treat", label: "Golden Treat" },
@@ -171,6 +183,7 @@ const OBJECTS: WorldObject[] = [
 
   // ---- I: ice chamber ----
   { id: "cp_depths_ice", kind: "checkpoint", col: 31, row: 28, label: "Ice Chamber" },
+  { id: "recharge_ice", kind: "recharge", col: 34, row: 28, label: "chamber charger" },
   {
     id: "sampler",
     kind: "sampler",
@@ -297,6 +310,9 @@ export const FROZEN_DEPTHS: MapDef = {
     { group: "circuit", points: [[2.4, 34.3], [132, 34.3]] },
   ],
   lights: [
+    // Phase 4: two dim survey lamps in the Ice Fissure (the headlamp does the rest).
+    { col: 100, row: 27, radius: 36 },
+    { col: 118, row: 22, radius: 40 },
     { col: 121, row: 8, radius: 80, warm: true },
     { col: 129, row: 8, radius: 80, warm: true },
     { col: 108, row: 12, radius: 46, flicker: true },

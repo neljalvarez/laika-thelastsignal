@@ -102,7 +102,10 @@ export class UI {
     topRight.append(this.abilitiesEl, this.inventoryEl, mapBtn, hintBtn, pauseBtn);
     this.promptEl = el("div", "hud-prompt px-panel hidden");
     this.promptEl.setAttribute("aria-live", "polite");
-    this.hud.append(this.objectiveEl, topRight, this.promptEl);
+    // Phase 4: the right column holds the button row and, below it, the suit meter and power chip.
+    this.hudRight = el("div", "hud-right");
+    this.hudRight.append(topRight);
+    this.hud.append(this.objectiveEl, this.hudRight, this.promptEl);
 
     this.toastsEl = el("div", "toasts");
     this.toastsEl.setAttribute("aria-live", "polite");
@@ -329,9 +332,14 @@ export class UI {
     return !this.readEl.classList.contains("hidden");
   }
 
-  showTip(text: string): void {
-    this.tipEl.replaceChildren(el("span", "label", "Science: "), document.createTextNode(text));
+  showTip(text: string, label = "Science"): void {
+    this.tipEl.replaceChildren(el("span", "label", `${label}: `), document.createTextNode(text));
     this.tipEl.classList.remove("hidden");
+    // Sit just below the top-right HUD column (it grows by the suit meter and power chip in Phase 4).
+    const col = this.hudRight?.getBoundingClientRect();
+    const root = this.root.getBoundingClientRect();
+    if (col && col.height > 0 && !this.hud.classList.contains("hidden")) this.tipEl.style.top = `${Math.round(col.bottom - root.top + 6)}px`;
+    else this.tipEl.style.top = "";
     if (this.tipTimer) window.clearTimeout(this.tipTimer);
     this.tipTimer = window.setTimeout(() => this.tipEl.classList.add("hidden"), 7000);
   }
@@ -440,6 +448,18 @@ export class UI {
     (document.activeElement as HTMLElement | null)?.blur?.();
   }
 
+  /** Phase 4: opens a game panel (base status, power console, science journal). */
+  showCustom(content: HTMLElement): HTMLElement {
+    return this.openScreen(content);
+  }
+
+  /** Phase 4: adds a HUD element (suit meter, power chip) that follows the HUD's visibility. */
+  mountHud(node: HTMLElement): void {
+    this.hudRight.append(node);
+  }
+
+  private hudRight!: HTMLElement;
+
   private openScreen(content: HTMLElement, opts: { dim?: boolean; cls?: string } = {}): HTMLElement {
     this.closeScreen();
     const screen = el("div", `screen${opts.dim === false ? "" : " dim"} ${opts.cls ?? ""}`);
@@ -523,11 +543,15 @@ export class UI {
     onReplayTutorial?: () => void;
     onEndReplay?: () => void;
     onMap?: () => void;
+    onBase?: () => void;
+    onScience?: () => void;
   }): void {
     const card = el("div", "menu-card px-panel");
     card.append(el("h2", "", opts.tutorial ? "Paused · Mission 00" : "Paused"));
     card.append(button("▶ Resume", opts.onResume));
     if (opts.onMap) card.append(button("World map", opts.onMap, "px-btn secondary"));
+    if (opts.onBase) card.append(button("Base status", opts.onBase, "px-btn secondary"));
+    if (opts.onScience) card.append(button("Science journal", opts.onScience, "px-btn secondary"));
     card.append(button("Controls", opts.onControls, "px-btn secondary"), button("Settings", opts.onSettings, "px-btn secondary"));
     if (opts.tutorial === "first") {
       card.append(button("Restart tutorial", opts.onRestartTutorial!, "px-btn secondary"), button("Skip tutorial", opts.onSkipTutorial!, "px-btn secondary"));
@@ -604,7 +628,7 @@ export class UI {
       wrap.append(input, el("span", "", help ?? ""));
       grid.append(lab, wrap);
     };
-    const select = <K extends "textScale" | "touchControls" | "textSpeed">(label: string, key: K, options: Array<[Settings[K], string]>) => {
+    const select = <K extends "textScale" | "touchControls" | "textSpeed" | "survival">(label: string, key: K, options: Array<[Settings[K], string]>) => {
       const id = `set-${key}`;
       const lab = el("label", "", label);
       lab.htmlFor = id;
@@ -645,6 +669,11 @@ export class UI {
     toggle("Sound captions", "captions", "Show short text for important sounds");
     toggle("Easy jumps", "assistJumps", "Higher jumps, glide while holding Jump");
     toggle("Brighter caves", "brightCaves", "Dark areas are easier to see");
+    select("Survival assistance", "survival", [
+      ["relaxed", "Relaxed: suit energy never limits you"],
+      ["adventure", "Adventure (recommended)"],
+      ["expedition", "Expedition: plan your energy"],
+    ]);
     select("Touch controls", "touchControls", [
       ["auto", "Automatic"],
       ["on", "Always on"],
@@ -716,13 +745,13 @@ export class UI {
   }
 
   /** Phase 3: end-of-mission card for the later missions (journal of discoveries). */
-  showStoryComplete(info: { title: string; subtitle: string; lines: string[]; minutes: number }, onExplore: () => void, onMenu: () => void): void {
+  showStoryComplete(info: { title: string; subtitle: string; lines: string[]; minutes: number; epilogue?: string }, onExplore: () => void, onMenu: () => void): void {
     const card = el("div", "menu-card px-panel complete-card");
     card.append(el("div", "big", info.title), el("p", "", info.subtitle));
     const ul = el("ul");
     for (const l of info.lines) ul.append(el("li", "", l));
     ul.append(el("li", "", `Time: about ${info.minutes} min`));
-    card.append(ul, el("p", "", "The signal is older than the station... and it knows her name."), el("p", "", "To be continued."));
+    card.append(ul, el("p", "", info.epilogue ?? "The signal is older than the station... and it knows her name."), el("p", "", "To be continued."));
     const row = el("div", "row-buttons");
     row.append(button("Keep exploring", onExplore), button("Title screen", onMenu, "px-btn secondary"));
     card.append(row);
